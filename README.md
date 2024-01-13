@@ -9,7 +9,7 @@ This repository contains the Suwayomi extension for [Tachiyomi](https://github.c
 
 The Extension can be downloaded, installed, and uninstalled via the main Tachiyomi app and variants. They are installed and uninstalled like regular apps, in `.apk` format.
 
-[Add the extension repo to your app using this link](tachiyomi://add-repo?url=https://raw.githubusercontent.com/suwayomi/tachiyomi-extension/repo/index.min.json)
+Add the extension repo to your app using this link: tachiyomi://add-repo?url=https://raw.githubusercontent.com/suwayomi/tachiyomi-extension/repo/index.min.json)
 
 Or by manually adding this to the extension repos: `https://raw.githubusercontent.com/suwayomi/tachiyomi-extension/repo/index.min.json`
 
