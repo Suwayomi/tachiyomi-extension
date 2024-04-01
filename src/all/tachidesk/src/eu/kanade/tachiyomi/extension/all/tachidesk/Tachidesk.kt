@@ -7,6 +7,12 @@ import android.util.Log
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
+import com.apollographql.apollo3.ApolloClient
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChaptersMutation
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetMangaMutation
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.ChapterFragment
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.MangaFragment
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.MangaStatus
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.source.ConfigurableSource
@@ -18,6 +24,7 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.Credentials
@@ -40,7 +47,15 @@ import kotlin.math.min
 class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override val name = "Suwayomi"
     override val id = 3100117499901280806L
+
+    private fun createApolloClient(serverUrl: String): ApolloClient {
+        return ApolloClient.Builder()
+            .serverUrl(serverUrl)
+            .build()
+    }
+
     override val baseUrl by lazy { getPrefBaseUrl() }
+    private val apolloClient = lazy { createApolloClient(baseUrl) }
     private val baseLogin by lazy { getPrefBaseLogin() }
     private val basePassword by lazy { getPrefBasePassword() }
 
@@ -74,20 +89,59 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     // ------------- Manga Details -------------
 
     override fun mangaDetailsRequest(manga: SManga) =
-        GET("$checkedBaseUrl/api/v1/manga/${manga.url}/?onlineFetch=true", headers)
+        throw Exception("Not used")
 
     override fun mangaDetailsParse(response: Response): SManga =
-        json.decodeFromString<MangaDataClass>(response.body.string()).toSManga()
+        throw Exception("Not used")
+
+    override fun fetchMangaDetails(manga: SManga): Observable<SManga> {
+        return runCatching {
+            apolloClient.value
+                .mutation(
+                    GetMangaMutation(manga.url.toInt())
+                )
+                .toFlow()
+                .map {
+                    it.dataAssertNoErrors
+                        .fetchManga
+                        .manga
+                        .mangaFragment
+                        .toSManga()
+                }
+                .asObservable()
+        }.getOrElse {
+            Observable.error(it)
+        }
+    }
 
     // ------------- Chapter -------------
 
     override fun chapterListRequest(manga: SManga): Request =
-        GET("$checkedBaseUrl/api/v1/manga/${manga.url}/chapters?onlineFetch=true", headers)
+        throw Exception("Not used")
 
     override fun chapterListParse(response: Response): List<SChapter> =
-        json.decodeFromString<List<ChapterDataClass>>(response.body.string()).map {
-            it.toSChapter()
+        throw Exception("Not used")
+
+    override fun fetchChapterList(manga: SManga): Observable<List<SChapter>> {
+        return runCatching {
+            apolloClient.value
+                .mutation(
+                    GetChaptersMutation(manga.url.toInt())
+                )
+                .toFlow()
+                .map {
+                    it.dataAssertNoErrors
+                        .fetchChapters
+                        .chapters
+                        .map {
+                            it.chapterFragment.toSChapter()
+                        }
+                }
+                .asObservable()
+        }.getOrElse {
+            Observable.error(it)
         }
+    }
 
     // ------------- Page List -------------
 
@@ -514,6 +568,33 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             "LICENSED" -> SManga.LICENSED
             else -> SManga.UNKNOWN // covers "UNKNOWN" and other Impossible cases
         }
+    }
+
+    private fun MangaFragment.toSManga() = SManga.create().also {
+        it.url = id.toString()
+        it.title = title
+        it.thumbnail_url = "$baseUrl$thumbnailUrl"
+        it.artist = artist
+        it.author = author
+        it.description = description
+        it.genre = genre.joinToString(", ")
+        it.status = when (status) {
+            MangaStatus.ONGOING -> SManga.ONGOING
+            MangaStatus.COMPLETED -> SManga.COMPLETED
+            MangaStatus.LICENSED -> SManga.LICENSED
+            MangaStatus.PUBLISHING_FINISHED -> SManga.PUBLISHING_FINISHED
+            MangaStatus.CANCELLED -> SManga.CANCELLED
+            MangaStatus.ON_HIATUS -> SManga.ON_HIATUS
+            MangaStatus.UNKNOWN, MangaStatus.UNKNOWN__ -> SManga.UNKNOWN
+        }
+    }
+
+    private fun ChapterFragment.toSChapter() = SChapter.create().also {
+        it.url = "$mangaId $sourceOrder"
+        it.name = name
+        it.date_upload = uploadDate
+        it.scanlator = scanlator
+        it.chapter_number = chapterNumber.toString().toFloat()
     }
 
     private fun ChapterDataClass.toSChapter() = SChapter.create().also {

@@ -1,0 +1,19 @@
+fragment MangaFragment on MangaType {
+    artist
+    author
+    description
+    id
+    status
+    thumbnailUrl
+    title
+    url
+    genre
+}
+
+mutation GetManga($mangaId: Int!) {
+    fetchManga(input: {id: $mangaId}) {
+        manga {
+            ...MangaFragment
+        }
+    }
+}
