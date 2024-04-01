@@ -28,3 +28,11 @@ apollo {
 dependencies {
     implementation(libs.apollo.runtime)
 }
+
+configurations.all {
+    resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+        if (details.requested.group == 'com.squareup.okhttp3' && details.requested.name == 'okhttp' && details.requested.version == '4.9.3') {
+            details.useVersion libs.okhttp.get().version
+        }
+    }
+}
