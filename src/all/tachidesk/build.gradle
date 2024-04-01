@@ -1,6 +1,7 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlinx-serialization'
+apply plugin: 'com.apollographql.apollo3'
 
 ext {
     extName = 'Suwayomi'
@@ -10,3 +11,20 @@ ext {
 }
 
 apply from: "$rootDir/common.gradle"
+
+apollo {
+    service("service") {
+        packageName.set("eu.kanade.tachiyomi.extension.all.tachidesk.apollo")
+        srcDir("graphql")
+        mapScalar("LongString","kotlin.Long", "eu.kanade.tachiyomi.extension.all.tachidesk.LongStringScalar")
+
+        introspection {
+            endpointUrl.set("http://localhost:4567/api/graphql")
+            schemaFile.set(file("graphql/schema.graphqls"))
+        }
+    }
+}
+
+dependencies {
+    implementation(libs.apollo.runtime)
+}
