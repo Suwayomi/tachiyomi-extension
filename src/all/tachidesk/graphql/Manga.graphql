@@ -8,11 +8,23 @@ fragment MangaFragment on MangaType {
     title
     url
     genre
+    inLibraryAt
+    chapters {
+        totalCount
+    }
 }
 
 mutation GetManga($mangaId: Int!) {
     fetchManga(input: {id: $mangaId}) {
         manga {
+            ...MangaFragment
+        }
+    }
+}
+
+query SearchManga($categories: [Int!]!) {
+    mangas(condition: {inLibrary: true}, filter: {categoryId: {in: $categories}}) {
+        nodes {
             ...MangaFragment
         }
     }

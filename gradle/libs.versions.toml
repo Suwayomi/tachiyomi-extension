@@ -1,5 +1,5 @@
 [versions]
-kotlin_version = "1.7.21"
+kotlin_version = "1.9.20"
 coroutines_version = "1.6.4"
 serialization_version = "1.4.0"
 apollo = "3.8.3"
@@ -13,7 +13,7 @@ gradle-apollo = { module = "com.apollographql.apollo3:apollo-gradle-plugin", ver
 
 tachiyomi-lib = { module = "com.github.tachiyomiorg:extensions-lib", version = "1.4.2" }
 
-kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib-jdk8", version.ref = "kotlin_version" }
+kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin_version" }
 kotlin-protobuf = { module = "org.jetbrains.kotlinx:kotlinx-serialization-protobuf", version.ref = "serialization_version" }
 kotlin-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization_version" }
 

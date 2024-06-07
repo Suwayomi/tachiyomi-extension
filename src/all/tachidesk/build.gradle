@@ -7,7 +7,7 @@ ext {
     extName = 'Suwayomi'
     pkgNameSuffix = 'all.tachidesk'
     extClass = '.Tachidesk'
-    extVersionCode = 12
+    extVersionCode = 13
 }
 
 apply from: "$rootDir/common.gradle"
@@ -26,10 +26,15 @@ apollo {
 }
 
 dependencies {
-    implementation(libs.apollo.runtime)
+    implementation(libs.apollo.runtime) {
+        exclude group: 'com.squareup.okhttp3'
+        exclude group: 'com.squareup.okio'
+        exclude group: 'org.jetbrains.kotlin'
+        exclude group: 'org.jetbrains.kotlinx'
+    }
 }
 
-configurations.all {
+configurations.configureEach {
     resolutionStrategy.eachDependency { DependencyResolveDetails details ->
         if (details.requested.group == 'com.squareup.okhttp3' && details.requested.name == 'okhttp' && details.requested.version == '4.9.3') {
             details.useVersion libs.okhttp.get().version
