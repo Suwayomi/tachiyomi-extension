@@ -1,0 +1,32 @@
+fragment ChapterFragment on ChapterType {
+    id
+    url
+    chapterNumber
+    name
+    uploadDate
+    scanlator
+    sourceOrder
+    mangaId
+}
+
+mutation GetChapters($mangaId: Int!) {
+    fetchChapters(input: {mangaId: $mangaId}) {
+        chapters {
+            ...ChapterFragment
+        }
+    }
+}
+
+query GetChapterId($mangaId: Int!, $chapterSourceorder: Int!) {
+    chapters(condition: {mangaId: $mangaId, sourceOrder: $chapterSourceorder}) {
+        nodes {
+            id
+        }
+    }
+}
+
+mutation GetPages($chapterId: Int!) {
+    fetchChapterPages(input: {chapterId: $chapterId}) {
+        pages
+    }
+}

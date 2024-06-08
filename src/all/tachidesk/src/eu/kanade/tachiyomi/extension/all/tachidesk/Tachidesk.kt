@@ -7,8 +7,23 @@ import android.util.Log
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
+import com.apollographql.apollo3.ApolloClient
+import com.apollographql.apollo3.api.Optional
+import com.apollographql.apollo3.api.http.HttpHeader
+import com.apollographql.apollo3.network.okHttpClient
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetCategoriesQuery
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChapterIdQuery
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChaptersMutation
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetMangaMutation
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetPagesMutation
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.SearchMangaQuery
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.CategoryFragment
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.ChapterFragment
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.MangaFragment
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.MangaFilterInput
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.MangaStatus
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.StringFilterInput
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.UnmeteredSource
 import eu.kanade.tachiyomi.source.model.Filter
@@ -18,36 +33,54 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import okhttp3.Credentials
 import okhttp3.Dns
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.internal.toImmutableList
 import rx.Observable
-import rx.Single
-import rx.schedulers.Schedulers
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import uy.kohesive.injekt.injectLazy
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
 
 class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override val name = "Suwayomi"
     override val id = 3100117499901280806L
+
+    private fun getHeaders(): List<HttpHeader> {
+        val headers = mutableListOf<HttpHeader>()
+        if (basePassword.isNotEmpty() && baseLogin.isNotEmpty()) {
+            val credentials = Credentials.basic(baseLogin, basePassword)
+            headers.add(HttpHeader("Authorization", credentials))
+        }
+        return headers.toList()
+    }
+
+    private fun createApolloClient(serverUrl: String): ApolloClient {
+        return ApolloClient.Builder()
+            .serverUrl(serverUrl.trimEnd('/') + "/api/graphql")
+            .okHttpClient(client)
+            .httpHeaders(getHeaders())
+            .build()
+    }
+
     override val baseUrl by lazy { getPrefBaseUrl() }
+    private val apolloClient = lazy { createApolloClient(checkedBaseUrl) }
     private val baseLogin by lazy { getPrefBaseLogin() }
     private val basePassword by lazy { getPrefBasePassword() }
 
     override val lang = "all"
     override val supportsLatest = false
-
-    private val json: Json by injectLazy()
 
     override val client: OkHttpClient =
         network.client.newBuilder()
@@ -56,9 +89,8 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             .build()
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder().apply {
-        if (basePassword.isNotEmpty() && baseLogin.isNotEmpty()) {
-            val credentials = Credentials.basic(baseLogin, basePassword)
-            add("Authorization", credentials)
+        getHeaders().forEach {
+            add(it.name, it.value)
         }
     }
 
@@ -66,60 +98,122 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     // Route the popular manga view through search to avoid duplicate code path
     override fun popularMangaRequest(page: Int): Request =
-        searchMangaRequest(page, "", FilterList())
+        throw Exception("Not used")
 
     override fun popularMangaParse(response: Response): MangasPage =
-        searchMangaParse(response)
+        throw Exception("Not used")
+
+    override fun fetchPopularManga(page: Int): Observable<MangasPage> {
+        return fetchSearchManga(page, "", FilterList())
+    }
 
     // ------------- Manga Details -------------
 
     override fun mangaDetailsRequest(manga: SManga) =
-        GET("$checkedBaseUrl/api/v1/manga/${manga.url}/?onlineFetch=true", headers)
+        throw Exception("Not used")
 
     override fun mangaDetailsParse(response: Response): SManga =
-        json.decodeFromString<MangaDataClass>(response.body.string()).toSManga()
+        throw Exception("Not used")
+
+    override fun fetchMangaDetails(manga: SManga): Observable<SManga> {
+        return runCatching {
+            apolloClient.value
+                .mutation(
+                    GetMangaMutation(manga.url.toInt()),
+                )
+                .toFlow()
+                .map {
+                    it.dataAssertNoErrors
+                        .fetchManga
+                        .manga
+                        .mangaFragment
+                        .toSManga()
+                }
+                .asObservable()
+        }.getOrElse {
+            Observable.error(it)
+        }
+    }
 
     // ------------- Chapter -------------
 
     override fun chapterListRequest(manga: SManga): Request =
-        GET("$checkedBaseUrl/api/v1/manga/${manga.url}/chapters?onlineFetch=true", headers)
+        throw Exception("Not used")
 
     override fun chapterListParse(response: Response): List<SChapter> =
-        json.decodeFromString<List<ChapterDataClass>>(response.body.string()).map {
-            it.toSChapter()
+        throw Exception("Not used")
+
+    override fun fetchChapterList(manga: SManga): Observable<List<SChapter>> {
+        return runCatching {
+            apolloClient.value
+                .mutation(
+                    GetChaptersMutation(manga.url.toInt()),
+                )
+                .toFlow()
+                .map { response ->
+                    response.dataAssertNoErrors
+                        .fetchChapters
+                        .chapters
+                        .map {
+                            it.chapterFragment.toSChapter()
+                        }
+                }
+                .asObservable()
+        }.getOrElse {
+            Observable.error(it)
         }
+    }
 
     // ------------- Page List -------------
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
-        return client.newCall(pageListRequest(chapter))
-            .asObservableSuccess()
-            .map { response ->
-                pageListParse(response, chapter)
-            }
-    }
-
-    override fun pageListRequest(chapter: SChapter): Request {
-        val mangaId = chapter.url.split(" ").first()
-        val chapterIndex = chapter.url.split(" ").last()
-
-        return GET("$checkedBaseUrl/api/v1/manga/$mangaId/chapter/$chapterIndex/?onlineFetch=True", headers)
-    }
-
-    private fun pageListParse(response: Response, sChapter: SChapter): List<Page> {
-        val mangaId = sChapter.url.split(" ").first()
-        val chapterIndex = sChapter.url.split(" ").last()
-
-        val chapter = json.decodeFromString<ChapterDataClass>(response.body.string())
-
-        return List(chapter.pageCount) {
-            Page(it + 1, "", "$checkedBaseUrl/api/v1/manga/$mangaId/chapter/$chapterIndex/page/$it/")
+        return runCatching {
+            val mangaId = chapter.url.substringBefore(' ', "").toInt()
+            val chapterSourceOrder = chapter.url.substringAfter(' ', "").toInt()
+            apolloClient.value
+                .query(
+                    GetChapterIdQuery(mangaId, chapterSourceOrder),
+                )
+                .toFlow()
+                .map {
+                    it.dataAssertNoErrors
+                        .chapters
+                        .nodes
+                        .single()
+                        .id
+                }
+                .flatMapLatest { chapterId ->
+                    apolloClient.value
+                        .mutation(
+                            GetPagesMutation(chapterId),
+                        )
+                        .toFlow()
+                        .map {
+                            it.dataAssertNoErrors
+                                .fetchChapterPages
+                                .pages
+                                .mapIndexed { index, url ->
+                                    Page(
+                                        index + 1,
+                                        "",
+                                        "$checkedBaseUrl$url",
+                                    )
+                                }
+                        }
+                }
+                .asObservable()
+        }.getOrElse {
+            Observable.error(it)
         }
     }
 
+    override fun pageListRequest(chapter: SChapter) =
+        throw Exception("Not used")
+
     // ------------- Filters & Search -------------
 
-    private var categoryList: List<CategoryDataClass> = emptyList()
+    private var categoryList: List<CategoryFragment> = emptyList()
     private val defaultCategoryId: Int
         get() = categoryList.firstOrNull()?.id ?: 0
 
@@ -144,7 +238,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     private val tagFilterModeIncludeString = "Include"
     private val tagFilterModeExcludeString = "Exclude"
 
-    class CategorySelect(categoryList: List<CategoryDataClass>) :
+    class CategorySelect(categoryList: List<CategoryFragment>) :
         Filter.Select<String>("Category", categoryList.map { it.name }.toTypedArray())
 
     class ResultsPerPageSelect(options: List<Int>) :
@@ -188,7 +282,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         Filter.Header("Press reset to refresh tag list and attempt to fetch categories."),
         Filter.Header("Tag list shows only the tags of currently displayed manga."),
         Filter.Header("\"All\" shows all manga regardless of category."),
-        CategorySelect(refreshCategoryList(baseUrl).let { categoryList }),
+        CategorySelect(refreshCategoryList().let { categoryList }),
         Filter.Separator(),
         TagFilterModeGroup(
             tagModes,
@@ -202,27 +296,29 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         ResultsPerPageSelect(resultsPerPageOptions),
     )
 
-    private fun refreshCategoryList(baseUrl: String) {
-        Single.fromCallable {
-            client.newCall(GET("$baseUrl/api/v1/category", headers)).execute()
+    @OptIn(DelicateCoroutinesApi::class)
+    private fun refreshCategoryList() {
+        runCatching {
+            apolloClient.value
+                .query(
+                    GetCategoriesQuery(),
+                )
+                .toFlow()
+                .onEach { response ->
+                    categoryList = listOf(CategoryFragment(-1, "All")) +
+                        response.dataAssertNoErrors
+                            .categories
+                            .nodes
+                            .map { it.categoryFragment }
+                }
+                .catch {
+                    categoryList = emptyList()
+                }
+                .launchIn(GlobalScope)
         }
-            .subscribeOn(Schedulers.io())
-            .observeOn(Schedulers.io())
-            .subscribe(
-                { response ->
-                    categoryList = try {
-                        // Add a pseudo category to list all manga across all categories
-                        listOf(CategoryDataClass(-1, -1, "All", false)) +
-                            json.decodeFromString<List<CategoryDataClass>>(response.body.string())
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-                },
-                {},
-            )
     }
 
-    private fun refreshTagList(mangaList: List<MangaDataClass>) {
+    private fun refreshTagList(mangaList: List<MangaFragment>) {
         val newTagList = mutableListOf<String>()
         for (mangaDetails in mangaList) {
             newTagList.addAll(mangaDetails.genre)
@@ -233,186 +329,206 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             .filter { tag -> tag.trim() != "" }
     }
 
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        // Embed search query and scope into URL params for processing in searchMangaParse
-        var currentCategoryId = defaultCategoryId
-        var resultsPerPage = defaultResultsPerPage
-        var sortByIndex = defaultSortByIndex
-        var sortByAscending = true
-        val tagIncludeList = mutableListOf<String>()
-        val tagExcludeList = mutableListOf<String>()
-        var tagFilterIncludeModeIndex = defaultIncludeTagModeIndex
-        var tagFilterExcludeModeIndex = defaultExcludeTagModeIndex
-        filters.forEach { filter ->
-            when (filter) {
-                is CategorySelect -> currentCategoryId = categoryList[filter.state].id
-                is ResultsPerPageSelect -> resultsPerPage = resultsPerPageOptions[filter.state]
-                is SortBy -> {
-                    sortByIndex = filter.state?.index ?: sortByIndex
-                    sortByAscending = filter.state?.ascending ?: sortByAscending
-                }
-                is TagFilterModeGroup -> {
-                    filter.state.forEach { tagFilterMode ->
-                        when (tagFilterMode.name) {
-                            tagFilterModeIncludeString -> tagFilterIncludeModeIndex = tagFilterMode.state
-                            tagFilterModeExcludeString -> tagFilterExcludeModeIndex = tagFilterMode.state
+    override fun searchMangaRequest(page: Int, query: String, filters: FilterList) =
+        throw Exception("Not used")
+
+    override fun searchMangaParse(response: Response) =
+        throw Exception("Not used")
+
+    override fun fetchSearchManga(
+        page: Int,
+        query: String,
+        filters: FilterList,
+    ): Observable<MangasPage> {
+        return runCatching {
+            // Embed search query and scope into URL params for processing in searchMangaParse
+            var currentCategoryId = defaultCategoryId
+            var resultsPerPage = defaultResultsPerPage
+            var sortByIndex = defaultSortByIndex
+            var sortByAscending = true
+            val tagIncludeList = mutableListOf<String>()
+            val tagExcludeList = mutableListOf<String>()
+            var tagFilterIncludeModeIndex = defaultIncludeTagModeIndex
+            var tagFilterExcludeModeIndex = defaultExcludeTagModeIndex
+            filters.forEach { filter ->
+                when (filter) {
+                    is CategorySelect -> currentCategoryId = categoryList[filter.state].id
+                    is ResultsPerPageSelect -> resultsPerPage = resultsPerPageOptions[filter.state]
+                    is SortBy -> {
+                        sortByIndex = filter.state?.index ?: sortByIndex
+                        sortByAscending = filter.state?.ascending ?: sortByAscending
+                    }
+                    is TagFilterModeGroup -> {
+                        filter.state.forEach { tagFilterMode ->
+                            when (tagFilterMode.name) {
+                                tagFilterModeIncludeString ->
+                                    tagFilterIncludeModeIndex =
+                                        tagFilterMode.state
+
+                                tagFilterModeExcludeString ->
+                                    tagFilterExcludeModeIndex =
+                                        tagFilterMode.state
+                            }
                         }
                     }
-                }
-                is TagSelector -> {
-                    filter.state.forEach { tagFilter ->
-                        when {
-                            tagFilter.isIncluded() -> tagIncludeList.add(tagFilter.name)
-                            tagFilter.isExcluded() -> tagExcludeList.add(tagFilter.name)
+
+                    is TagSelector -> {
+                        filter.state.forEach { tagFilter ->
+                            when {
+                                tagFilter.isIncluded() -> tagIncludeList.add(tagFilter.name)
+                                tagFilter.isExcluded() -> tagExcludeList.add(tagFilter.name)
+                            }
                         }
                     }
-                }
-                else -> {}
-            }
-        }
-        val url = "$checkedBaseUrl/api/v1/$currentCategoryId"
-            .toHttpUrl()
-            .newBuilder()
-            .addQueryParameter("searchQuery", query)
-            .addQueryParameter("currentCategoryId", currentCategoryId.toString())
-            .addQueryParameter("sortBy", sortByIndex.toString())
-            .addQueryParameter("sortByAscending", sortByAscending.toString())
-            .addQueryParameter("tagFilterIncludeMode", tagFilterIncludeModeIndex.toString())
-            .addQueryParameter("tagFilterExcludeMode", tagFilterExcludeModeIndex.toString())
-            .addQueryParameter("tagIncludeList", tagIncludeList.joinToString(","))
-            .addQueryParameter("tagExcludeList", tagExcludeList.joinToString(","))
-            .addQueryParameter("resultsPerPage", resultsPerPage.toString())
-            .addQueryParameter("page", page.toString())
-            .build()
-        return GET(url, headers)
-    }
 
-    override fun searchMangaParse(response: Response): MangasPage {
-        val request = response.request
-        var searchQuery: String? = ""
-        var currentCategoryId = defaultCategoryId
-        var sortByIndex = defaultSortByIndex
-        var sortByAscending = true
-        var tagIncludeList = mutableListOf<String>()
-        var tagExcludeList = mutableListOf<String>()
-        var tagFilterIncludeModeIndex = defaultIncludeTagModeIndex
-        var tagFilterExcludeModeIndex = defaultExcludeTagModeIndex
-        var resultsPerPage = defaultResultsPerPage
-        var page = 1
-
-        // Check if URL has query params and parse them
-        if (!request.url.query.isNullOrEmpty()) {
-            searchQuery = request.url.queryParameter("searchQuery")
-            currentCategoryId = request.url.queryParameter("currentCategoryId")?.toIntOrNull() ?: currentCategoryId
-            sortByIndex = request.url.queryParameter("sortBy")?.toIntOrNull() ?: sortByIndex
-            sortByAscending = request.url.queryParameter("sortByAscending").toBoolean()
-            tagIncludeList = request.url.queryParameter("tagIncludeList").let { param ->
-                if (param is String && param.isNotEmpty()) {
-                    param.split(",").toMutableList()
-                } else {
-                    tagIncludeList
+                    else -> {}
                 }
             }
-            tagExcludeList = request.url.queryParameter("tagExcludeList").let { param ->
-                if (param is String && param.isNotEmpty()) {
-                    param.split(",").toMutableList()
-                } else {
-                    tagExcludeList
-                }
+            val sortByProperty = sortByOptions[sortByIndex]
+            val tagFilterIncludeMode = tagModes[tagFilterIncludeModeIndex]
+            val tagFilterExcludeMode = tagModes[tagFilterExcludeModeIndex]
+
+            // Get URLs of categories to search
+            val categoryIdList = if (currentCategoryId == -1) {
+                categoryList.map { category -> category.id }
+            } else {
+                listOf(currentCategoryId)
             }
-            tagFilterIncludeModeIndex = request.url.queryParameter("tagFilterIncludeMode")?.toIntOrNull() ?: tagFilterIncludeModeIndex
-            tagFilterExcludeModeIndex = request.url.queryParameter("tagFilterExcludeMode")?.toIntOrNull() ?: tagFilterExcludeModeIndex
-            resultsPerPage = request.url.queryParameter("resultsPerPage")?.toIntOrNull() ?: resultsPerPage
-            page = request.url.queryParameter("page")?.toIntOrNull() ?: page
-        }
-        val sortByProperty = sortByOptions[sortByIndex]
-        val tagFilterIncludeMode = tagModes[tagFilterIncludeModeIndex]
-        val tagFilterExcludeMode = tagModes[tagFilterExcludeModeIndex]
 
-        // Get URLs of categories to search
-        val categoryUrlList = if (currentCategoryId == -1) {
-            categoryList.map { category -> "$checkedBaseUrl/api/v1/category/${category.id}" }
-        } else {
-            listOfNotNull("$checkedBaseUrl/api/v1/category/$currentCategoryId")
-        }
-
-        // Construct a list of all manga in the required categories by querying each one
-        val mangaList = mutableListOf<MangaDataClass>()
-        categoryUrlList.forEach { categoryUrl ->
-            val categoryMangaListRequest =
-                GET(categoryUrl, headers)
-            val categoryMangaListResponse =
-                client.newCall(categoryMangaListRequest).execute()
-            val categoryMangaListJson =
-                categoryMangaListResponse.body.string()
-            val categoryMangaList =
-                json.decodeFromString<List<MangaDataClass>>(categoryMangaListJson)
-            mangaList.addAll(categoryMangaList)
-        }
-
-        // Filter by tags
-        var searchResults = mangaList.toImmutableList()
-        val filterConfigs = mutableListOf<Triple<Boolean, String, List<String>>>()
-        if (tagExcludeList.isNotEmpty()) filterConfigs.add(Triple(false, tagFilterExcludeMode, tagExcludeList))
-        if (tagIncludeList.isNotEmpty()) filterConfigs.add(Triple(true, tagFilterIncludeMode, tagIncludeList))
-        filterConfigs.forEach { config ->
-            val isInclude = config.first
-            val filterMode = config.second
-            val filteredTagList = config.third
-            searchResults = searchResults.filter { mangaData ->
-                val lowerCaseTags = mangaData.genre.map { it.lowercase() }
-                val filterResult = when (filterMode) {
-                    tagModeAndString -> lowerCaseTags.containsAll(filteredTagList.map { tag -> tag.lowercase() })
-                    tagModeOrString -> lowerCaseTags.any { tag -> tag in filteredTagList.map { tag -> tag.lowercase() } }
-                    else -> false
-                }
-                if (isInclude) filterResult else !filterResult
-            }
-        }
-
-        // Filter according to search terms.
-        // Basic substring search, room for improvement.
-        searchResults = if (!searchQuery.isNullOrEmpty()) {
-            searchResults.filter { mangaData ->
-                val fieldsToCheck = listOfNotNull(
-                    mangaData.title,
-                    mangaData.url,
-                    mangaData.artist,
-                    mangaData.author,
-                    mangaData.description,
+            val filterConfigs = mutableListOf<Triple<Boolean, String, List<String>>>()
+            if (tagExcludeList.isNotEmpty()) {
+                filterConfigs.add(
+                    Triple(
+                        false,
+                        tagFilterExcludeMode,
+                        tagExcludeList,
+                    ),
                 )
-                fieldsToCheck.any { field ->
-                    field.contains(searchQuery, ignoreCase = true)
-                }
             }
-        } else {
-            searchResults
-        }.distinct()
+            if (tagIncludeList.isNotEmpty()) {
+                filterConfigs.add(
+                    Triple(
+                        true,
+                        tagFilterIncludeMode,
+                        tagIncludeList,
+                    ),
+                )
+            }
 
-        // Sort results
-        searchResults = when (sortByProperty) {
-            "Title" -> searchResults.sortedBy { it.title }
-            "Artist" -> searchResults.sortedBy { it.artist }
-            "Author" -> searchResults.sortedBy { it.author }
-            "Date added" -> searchResults.sortedBy { it.inLibraryAt }
-            "Total chapters" -> searchResults.sortedBy { it.chapterCount }
-            else -> searchResults
+            val filterInput = filterConfigs.mapNotNull { config ->
+                val isInclude = config.first
+                val filterMode = config.second
+                val filteredTagList = config.third
+                val filterTagList = filteredTagList.map {
+                    MangaFilterInput(
+                        genre = Optional.present(
+                            if (isInclude) {
+                                StringFilterInput(
+                                    includesInsensitive = Optional.present(it),
+                                )
+                            } else {
+                                StringFilterInput(
+                                    notIncludesInsensitive = Optional.present(it),
+                                )
+                            },
+                        ),
+                    )
+                }
+                when (filterMode) {
+                    tagModeAndString -> MangaFilterInput(
+                        and = Optional.present(filterTagList),
+                    )
+                    tagModeOrString -> MangaFilterInput(
+                        or = Optional.present(filterTagList),
+                    )
+                    else -> null
+                }
+            }.toMutableList()
+
+            // Filter according to search terms.
+            if (query.isNotEmpty()) {
+                val queryFilters = listOf(
+                    MangaFilterInput(
+                        title = Optional.present(
+                            StringFilterInput(includesInsensitive = Optional.present(query)),
+                        ),
+                    ),
+                    MangaFilterInput(
+                        url = Optional.present(
+                            StringFilterInput(includesInsensitive = Optional.present(query)),
+                        ),
+                    ),
+                    MangaFilterInput(
+                        artist = Optional.present(
+                            StringFilterInput(includesInsensitive = Optional.present(query)),
+                        ),
+                    ),
+                    MangaFilterInput(
+                        author = Optional.present(
+                            StringFilterInput(includesInsensitive = Optional.present(query)),
+                        ),
+                    ),
+                    MangaFilterInput(
+                        description = Optional.present(
+                            StringFilterInput(includesInsensitive = Optional.present(query)),
+                        ),
+                    ),
+                )
+                filterInput.add(
+                    MangaFilterInput(
+                        or = Optional.present(queryFilters),
+                    ),
+                )
+            }
+
+            val optionalFilterInput = if (filterInput.isNotEmpty()) {
+                Optional.present(filterInput)
+            } else {
+                Optional.absent()
+            }
+
+            // Construct a list of all manga in the required categories by querying each one
+            return apolloClient.value.query(
+                SearchMangaQuery(categoryIdList, optionalFilterInput),
+            )
+                .toFlow()
+                .map { response ->
+                    response.dataAssertNoErrors.mangas.nodes.map { it.mangaFragment }
+                        .distinctBy { it.id }
+                }
+                .map { mangaList ->
+                    // Filter by tags
+                    var searchResults = mangaList.toList()
+
+                    // Sort results
+                    searchResults = when (sortByProperty) {
+                        "Title" -> searchResults.sortedBy { it.title }
+                        "Artist" -> searchResults.sortedBy { it.artist }
+                        "Author" -> searchResults.sortedBy { it.author }
+                        "Date added" -> searchResults.sortedBy { it.inLibraryAt }
+                        "Total chapters" -> searchResults.sortedBy { it.chapters.totalCount }
+                        else -> searchResults
+                    }
+                    if (!sortByAscending) {
+                        searchResults = searchResults.asReversed()
+                    }
+
+                    // Get new list of tags from the search results
+                    refreshTagList(searchResults)
+
+                    // Paginate results
+                    val hasNextPage: Boolean
+                    with(paginateResults(searchResults, page, resultsPerPage)) {
+                        searchResults = first
+                        hasNextPage = second
+                    }
+
+                    MangasPage(searchResults.map { mangaData -> mangaData.toSManga() }, hasNextPage)
+                }
+                .asObservable()
+        }.getOrElse {
+            Observable.error(it)
         }
-        if (!sortByAscending) {
-            searchResults = searchResults.asReversed()
-        }
-
-        // Get new list of tags from the search results
-        refreshTagList(searchResults)
-
-        // Paginate results
-        val hasNextPage: Boolean
-        with(paginateResults(searchResults, page, resultsPerPage)) {
-            searchResults = first
-            hasNextPage = second
-        }
-
-        return MangasPage(searchResults.map { mangaData -> mangaData.toSManga() }, hasNextPage)
     }
 
     // ------------- Images -------------
@@ -435,7 +551,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             val initBase = preferences.getString(key, defaultValue)!!
 
             if (initBase.isNotBlank()) {
-                refreshCategoryList(initBase)
+                refreshCategoryList()
             }
         }
     }
@@ -500,7 +616,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     // ------------- Util -------------
 
-    private fun MangaDataClass.toSManga() = SManga.create().also {
+    private fun MangaFragment.toSManga() = SManga.create().also {
         it.url = id.toString()
         it.title = title
         it.thumbnail_url = "$baseUrl$thumbnailUrl"
@@ -509,26 +625,30 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         it.description = description
         it.genre = genre.joinToString(", ")
         it.status = when (status) {
-            "ONGOING" -> SManga.ONGOING
-            "COMPLETED" -> SManga.COMPLETED
-            "LICENSED" -> SManga.LICENSED
-            else -> SManga.UNKNOWN // covers "UNKNOWN" and other Impossible cases
+            MangaStatus.ONGOING -> SManga.ONGOING
+            MangaStatus.COMPLETED -> SManga.COMPLETED
+            MangaStatus.LICENSED -> SManga.LICENSED
+            MangaStatus.PUBLISHING_FINISHED -> SManga.PUBLISHING_FINISHED
+            MangaStatus.CANCELLED -> SManga.CANCELLED
+            MangaStatus.ON_HIATUS -> SManga.ON_HIATUS
+            MangaStatus.UNKNOWN, MangaStatus.UNKNOWN__ -> SManga.UNKNOWN
         }
     }
 
-    private fun ChapterDataClass.toSChapter() = SChapter.create().also {
-        it.url = "$mangaId $index"
+    private fun ChapterFragment.toSChapter() = SChapter.create().also {
+        it.url = "$mangaId $sourceOrder"
         it.name = name
         it.date_upload = uploadDate
         it.scanlator = scanlator
+        it.chapter_number = chapterNumber.toString().toFloat()
     }
 
     private val checkedBaseUrl: String
         get(): String = baseUrl.ifEmpty { throw RuntimeException("Set Tachidesk server url in extension settings") }
 
-    private fun paginateResults(mangaList: List<MangaDataClass>, page: Int?, itemsPerPage: Int?): Pair<List<MangaDataClass>, Boolean> {
+    private fun paginateResults(mangaList: List<MangaFragment>, page: Int, itemsPerPage: Int): Pair<List<MangaFragment>, Boolean> {
         var hasNextPage = false
-        val pageItems = if (mangaList.isNotEmpty() && itemsPerPage is Int && page is Int) {
+        val pageItems = if (mangaList.isNotEmpty()) {
             val fromIndex = (page - 1) * itemsPerPage
             val toIndex = min(fromIndex + itemsPerPage, mangaList.size)
             hasNextPage = toIndex < mangaList.size

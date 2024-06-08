@@ -1,0 +1,37 @@
+fragment MangaFragment on MangaType {
+    artist
+    author
+    description
+    id
+    status
+    thumbnailUrl
+    title
+    url
+    genre
+    inLibraryAt
+    chapters {
+        totalCount
+    }
+}
+
+mutation GetManga($mangaId: Int!) {
+    fetchManga(input: {id: $mangaId}) {
+        manga {
+            ...MangaFragment
+        }
+    }
+}
+
+query SearchManga($categories: [Int!]!, $filter: [MangaFilterInput!]) {
+    mangas(
+        condition: {inLibrary: true},
+        filter: {
+            categoryId: {in: $categories},
+            and: $filter
+        }
+    ) {
+        nodes {
+            ...MangaFragment
+        }
+    }
+}

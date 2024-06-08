@@ -1,12 +1,43 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlinx-serialization'
+apply plugin: 'com.apollographql.apollo3'
 
 ext {
     extName = 'Suwayomi'
     pkgNameSuffix = 'all.tachidesk'
     extClass = '.Tachidesk'
-    extVersionCode = 12
+    extVersionCode = 13
 }
 
 apply from: "$rootDir/common.gradle"
+
+apollo {
+    service("service") {
+        packageName.set("eu.kanade.tachiyomi.extension.all.tachidesk.apollo")
+        srcDir("graphql")
+        mapScalar("LongString","kotlin.Long", "eu.kanade.tachiyomi.extension.all.tachidesk.LongStringScalar")
+
+        introspection {
+            endpointUrl.set("http://localhost:4567/api/graphql")
+            schemaFile.set(file("graphql/schema.graphqls"))
+        }
+    }
+}
+
+dependencies {
+    implementation(libs.apollo.runtime) {
+        exclude group: 'com.squareup.okhttp3'
+        exclude group: 'com.squareup.okio'
+        exclude group: 'org.jetbrains.kotlin'
+        exclude group: 'org.jetbrains.kotlinx'
+    }
+}
+
+configurations.configureEach {
+    resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+        if (details.requested.group == 'com.squareup.okhttp3' && details.requested.name == 'okhttp' && details.requested.version == '4.9.3') {
+            details.useVersion libs.okhttp.get().version
+        }
+    }
+}
