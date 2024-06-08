@@ -22,8 +22,14 @@ mutation GetManga($mangaId: Int!) {
     }
 }
 
-query SearchManga($categories: [Int!]!) {
-    mangas(condition: {inLibrary: true}, filter: {categoryId: {in: $categories}}) {
+query SearchManga($categories: [Int!]!, $filter: [MangaFilterInput!]) {
+    mangas(
+        condition: {inLibrary: true},
+        filter: {
+            categoryId: {in: $categories},
+            and: $filter
+        }
+    ) {
         nodes {
             ...MangaFragment
         }

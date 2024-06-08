@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import com.apollographql.apollo3.ApolloClient
+import com.apollographql.apollo3.api.Optional
 import com.apollographql.apollo3.api.http.HttpHeader
 import com.apollographql.apollo3.network.okHttpClient
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetCategoriesQuery
@@ -19,7 +20,9 @@ import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.SearchMangaQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.CategoryFragment
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.ChapterFragment
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.MangaFragment
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.MangaFilterInput
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.MangaStatus
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.StringFilterInput
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.UnmeteredSource
@@ -392,9 +395,101 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                 listOf(currentCategoryId)
             }
 
+            val filterConfigs = mutableListOf<Triple<Boolean, String, List<String>>>()
+            if (tagExcludeList.isNotEmpty()) {
+                filterConfigs.add(
+                    Triple(
+                        false,
+                        tagFilterExcludeMode,
+                        tagExcludeList,
+                    ),
+                )
+            }
+            if (tagIncludeList.isNotEmpty()) {
+                filterConfigs.add(
+                    Triple(
+                        true,
+                        tagFilterIncludeMode,
+                        tagIncludeList,
+                    ),
+                )
+            }
+
+            val filterInput = filterConfigs.mapNotNull { config ->
+                val isInclude = config.first
+                val filterMode = config.second
+                val filteredTagList = config.third
+                val filterTagList = filteredTagList.map {
+                    MangaFilterInput(
+                        genre = Optional.present(
+                            if (isInclude) {
+                                StringFilterInput(
+                                    includesInsensitive = Optional.present(it),
+                                )
+                            } else {
+                                StringFilterInput(
+                                    notIncludesInsensitive = Optional.present(it),
+                                )
+                            },
+                        ),
+                    )
+                }
+                when (filterMode) {
+                    tagModeAndString -> MangaFilterInput(
+                        and = Optional.present(filterTagList),
+                    )
+                    tagModeOrString -> MangaFilterInput(
+                        or = Optional.present(filterTagList),
+                    )
+                    else -> null
+                }
+            }.toMutableList()
+
+            // Filter according to search terms.
+            if (query.isNotEmpty()) {
+                val queryFilters = listOf(
+                    MangaFilterInput(
+                        title = Optional.present(
+                            StringFilterInput(includesInsensitive = Optional.present(query)),
+                        ),
+                    ),
+                    MangaFilterInput(
+                        url = Optional.present(
+                            StringFilterInput(includesInsensitive = Optional.present(query)),
+                        ),
+                    ),
+                    MangaFilterInput(
+                        artist = Optional.present(
+                            StringFilterInput(includesInsensitive = Optional.present(query)),
+                        ),
+                    ),
+                    MangaFilterInput(
+                        author = Optional.present(
+                            StringFilterInput(includesInsensitive = Optional.present(query)),
+                        ),
+                    ),
+                    MangaFilterInput(
+                        description = Optional.present(
+                            StringFilterInput(includesInsensitive = Optional.present(query)),
+                        ),
+                    ),
+                )
+                filterInput.add(
+                    MangaFilterInput(
+                        or = Optional.present(queryFilters),
+                    ),
+                )
+            }
+
+            val optionalFilterInput = if (filterInput.isNotEmpty()) {
+                Optional.present(filterInput)
+            } else {
+                Optional.absent()
+            }
+
             // Construct a list of all manga in the required categories by querying each one
             return apolloClient.value.query(
-                SearchMangaQuery(categoryIdList),
+                SearchMangaQuery(categoryIdList, optionalFilterInput),
             )
                 .toFlow()
                 .map { response ->
@@ -404,58 +499,6 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                 .map { mangaList ->
                     // Filter by tags
                     var searchResults = mangaList.toList()
-                    val filterConfigs = mutableListOf<Triple<Boolean, String, List<String>>>()
-                    if (tagExcludeList.isNotEmpty()) {
-                        filterConfigs.add(
-                            Triple(
-                                false,
-                                tagFilterExcludeMode,
-                                tagExcludeList,
-                            ),
-                        )
-                    }
-                    if (tagIncludeList.isNotEmpty()) {
-                        filterConfigs.add(
-                            Triple(
-                                true,
-                                tagFilterIncludeMode,
-                                tagIncludeList,
-                            ),
-                        )
-                    }
-                    filterConfigs.forEach { config ->
-                        val isInclude = config.first
-                        val filterMode = config.second
-                        val filteredTagList = config.third
-                        searchResults = searchResults.filter { mangaData ->
-                            val lowerCaseTags = mangaData.genre.map { it.lowercase() }
-                            val filterResult = when (filterMode) {
-                                tagModeAndString -> lowerCaseTags.containsAll(filteredTagList.map { tag -> tag.lowercase() })
-                                tagModeOrString -> lowerCaseTags.any { tag -> tag in filteredTagList.map { fTag -> fTag.lowercase() } }
-                                else -> false
-                            }
-                            if (isInclude) filterResult else !filterResult
-                        }
-                    }
-
-                    // Filter according to search terms.
-                    // Basic substring search, room for improvement.
-                    searchResults = if (query.isNotEmpty()) {
-                        searchResults.filter { mangaData ->
-                            val fieldsToCheck = listOfNotNull(
-                                mangaData.title,
-                                mangaData.url,
-                                mangaData.artist,
-                                mangaData.author,
-                                mangaData.description,
-                            )
-                            fieldsToCheck.any { field ->
-                                field.contains(query, ignoreCase = true)
-                            }
-                        }
-                    } else {
-                        searchResults
-                    }.distinct()
 
                     // Sort results
                     searchResults = when (sortByProperty) {
