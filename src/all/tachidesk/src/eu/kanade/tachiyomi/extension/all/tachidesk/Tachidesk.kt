@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.SearchMangaQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.CategoryFragment
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.ChapterFragment
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.MangaFragment
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.IntFilterInput
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.MangaFilterInput
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.MangaStatus
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.StringFilterInput
@@ -388,11 +389,24 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             val tagFilterIncludeMode = tagModes[tagFilterIncludeModeIndex]
             val tagFilterExcludeMode = tagModes[tagFilterExcludeModeIndex]
 
+            val filterInput = mutableListOf<MangaFilterInput>()
             // Get URLs of categories to search
-            val categoryIdList = if (currentCategoryId == -1) {
-                categoryList.map { category -> category.id }
-            } else {
-                listOf(currentCategoryId)
+            if (currentCategoryId >= 0) {
+                filterInput.add(
+                    MangaFilterInput(
+                        categoryId = Optional.present(
+                            if (currentCategoryId == 0) {
+                                IntFilterInput(
+                                    isNull = Optional.present(true)
+                                )
+                            } else {
+                                IntFilterInput(
+                                    equalTo = Optional.present(currentCategoryId)
+                                )
+                            }
+                        )
+                    )
+                )
             }
 
             val filterConfigs = mutableListOf<Triple<Boolean, String, List<String>>>()
@@ -415,7 +429,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                 )
             }
 
-            val filterInput = filterConfigs.mapNotNull { config ->
+            filterConfigs.mapNotNullTo(filterInput) { config ->
                 val isInclude = config.first
                 val filterMode = config.second
                 val filteredTagList = config.third
@@ -443,7 +457,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                     )
                     else -> null
                 }
-            }.toMutableList()
+            }
 
             // Filter according to search terms.
             if (query.isNotEmpty()) {
@@ -489,7 +503,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
             // Construct a list of all manga in the required categories by querying each one
             return apolloClient.value.query(
-                SearchMangaQuery(categoryIdList, optionalFilterInput),
+                SearchMangaQuery(optionalFilterInput),
             )
                 .toFlow()
                 .map { response ->
