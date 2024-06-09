@@ -110,6 +110,10 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     // ------------- Manga Details -------------
 
+    override fun getMangaUrl(manga: SManga): String {
+        return checkedBaseUrl.trimEnd('/') + "/manga/${manga.url}"
+    }
+
     override fun mangaDetailsRequest(manga: SManga) =
         throw Exception("Not used")
 
@@ -138,6 +142,12 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     // ------------- Chapter -------------
 
+    override fun getChapterUrl(chapter: SChapter): String {
+        val mangaId = chapter.url.substringBefore(' ', "")
+        val chapterSourceOrder = chapter.url.substringAfter(' ', "")
+        return checkedBaseUrl.trimEnd('/') + "/manga/$mangaId/chapter/$chapterSourceOrder"
+    }
+
     override fun chapterListRequest(manga: SManga): Request =
         throw Exception("Not used")
 
@@ -155,6 +165,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                     response.dataAssertNoErrors
                         .fetchChapters
                         .chapters
+                        .sortedByDescending { it.chapterFragment.sourceOrder }
                         .map {
                             it.chapterFragment.toSChapter()
                         }
@@ -397,15 +408,15 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                         categoryId = Optional.present(
                             if (currentCategoryId == 0) {
                                 IntFilterInput(
-                                    isNull = Optional.present(true)
+                                    isNull = Optional.present(true),
                                 )
                             } else {
                                 IntFilterInput(
-                                    equalTo = Optional.present(currentCategoryId)
+                                    equalTo = Optional.present(currentCategoryId),
                                 )
-                            }
-                        )
-                    )
+                            },
+                        ),
+                    ),
                 )
             }
 
