@@ -28,6 +28,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.UnmeteredSource
 import eu.kanade.tachiyomi.source.model.Filter
+import eu.kanade.tachiyomi.source.model.Filter.Sort.Selection
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -81,7 +82,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     private val basePassword by lazy { getPrefBasePassword() }
 
     override val lang = "all"
-    override val supportsLatest = false
+    override val supportsLatest = true
 
     override val client: OkHttpClient =
         network.client.newBuilder()
@@ -106,6 +107,22 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     override fun fetchPopularManga(page: Int): Observable<MangasPage> {
         return fetchSearchManga(page, "", FilterList())
+    }
+
+    // ------------- Latest Manga -------------
+
+    override fun latestUpdatesRequest(page: Int): Request =
+        throw Exception("Not used")
+
+    override fun latestUpdatesParse(response: Response): MangasPage =
+        throw Exception("Not used")
+
+    override fun fetchLatestUpdates(page: Int): Observable<MangasPage> {
+        return fetchSearchManga(
+            page,
+            "",
+            FilterList(SortBy(sortByOptions).apply { state = Selection(3, false) }),
+        )
     }
 
     // ------------- Manga Details -------------
@@ -630,10 +647,6 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     }
 
     // ------------- Not Used -------------
-
-    override fun latestUpdatesRequest(page: Int): Request = throw Exception("Not used")
-
-    override fun latestUpdatesParse(response: Response): MangasPage = throw Exception("Not used")
 
     override fun pageListParse(response: Response): List<Page> = throw Exception("Not used")
 
