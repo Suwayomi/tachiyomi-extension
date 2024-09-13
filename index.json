@@ -2,10 +2,10 @@
   {
     "name": "Tachiyomi: Suwayomi",
     "pkg": "eu.kanade.tachiyomi.extension.all.tachidesk",
-    "apk": "tachiyomi-all.tachidesk-v1.4.15.apk",
+    "apk": "tachiyomi-all.tachidesk-v1.4.16.apk",
     "lang": "all",
-    "code": 15,
-    "version": "1.4.15",
+    "code": 16,
+    "version": "1.4.16",
     "nsfw": 0,
     "sources": [
       {
