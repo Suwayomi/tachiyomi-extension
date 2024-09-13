@@ -379,6 +379,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             val tagExcludeList = mutableListOf<String>()
             var tagFilterIncludeModeIndex = defaultIncludeTagModeIndex
             var tagFilterExcludeModeIndex = defaultExcludeTagModeIndex
+
             filters.forEach { filter ->
                 when (filter) {
                     is CategorySelect -> currentCategoryId = categoryList[filter.state].id
