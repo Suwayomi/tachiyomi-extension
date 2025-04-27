@@ -1,6 +1,6 @@
 | Build                                                                                                                                                                   | Support Server |
 |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
-| [![CI](https://github.com/Suwayomi/tachiyomi-extension/actions/workflows/build_push.yml/badge.svg?event=push)](https://github.com/Suwayomi/tachiyomi-extension/actions/workflows/build_push.yml) | [![Discord](https://img.shields.io/discord/598920799851905034.svg?label=discord&labelColor=7289da&color=2c2f33&style=flat)](https://discord.gg/DDZdqZWaHA) |
+| [![CI](https://github.com/Suwayomi/tachiyomi-extension/actions/workflows/build_push.yml/badge.svg?event=push)](https://github.com/Suwayomi/tachiyomi-extension/actions/workflows/build_push.yml) | [![Discord](https://img.shields.io/discord/801021177333940224.svg?label=discord&labelColor=7289da&color=2c2f33&style=flat)](https://discord.gg/DDZdqZWaHA) |
 
 # ![app icon](./.github/readme-images/app-icon.png)Suwayomi Extension
 This repository contains the Suwayomi extension for [Tachiyomi](https://github.com/tachiyomiorg/tachiyomi) and variants.
