@@ -226,7 +226,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                                     Page(
                                         index + 1,
                                         "",
-                                        "$checkedBaseUrl/$url",
+                                        "$checkedBaseUrl$url",
                                     )
                                 }
                         }
@@ -658,7 +658,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     private fun MangaFragment.toSManga() = SManga.create().also {
         it.url = id.toString()
         it.title = title
-        it.thumbnail_url = "$cleanUrl/$thumbnailUrl"
+        it.thumbnail_url = "$cleanUrl$thumbnailUrl"
         it.artist = artist
         it.author = author
         it.description = description
