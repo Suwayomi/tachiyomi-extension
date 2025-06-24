@@ -70,7 +70,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     private fun createApolloClient(serverUrl: String): ApolloClient {
         return ApolloClient.Builder()
-            .serverUrl(serverUrl.trimEnd('/') + "/api/graphql")
+            .serverUrl("$serverUrl/api/graphql")
             .okHttpClient(client)
             .httpHeaders(getHeaders())
             .build()
@@ -128,7 +128,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     // ------------- Manga Details -------------
 
     override fun getMangaUrl(manga: SManga): String {
-        return checkedBaseUrl.trimEnd('/') + "/manga/${manga.url}"
+        return "$checkedBaseUrl/manga/${manga.url}"
     }
 
     override fun mangaDetailsRequest(manga: SManga) =
@@ -162,7 +162,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override fun getChapterUrl(chapter: SChapter): String {
         val mangaId = chapter.url.substringBefore(' ', "")
         val chapterSourceOrder = chapter.url.substringAfter(' ', "")
-        return checkedBaseUrl.trimEnd('/') + "/manga/$mangaId/chapter/$chapterSourceOrder"
+        return "$checkedBaseUrl/manga/$mangaId/chapter/$chapterSourceOrder"
     }
 
     override fun chapterListRequest(manga: SManga): Request =
@@ -226,7 +226,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                                     Page(
                                         index + 1,
                                         "",
-                                        "$checkedBaseUrl$url",
+                                        "$checkedBaseUrl/$url",
                                     )
                                 }
                         }
@@ -658,7 +658,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     private fun MangaFragment.toSManga() = SManga.create().also {
         it.url = id.toString()
         it.title = title
-        it.thumbnail_url = "$baseUrl$thumbnailUrl"
+        it.thumbnail_url = "$cleanUrl/$thumbnailUrl"
         it.artist = artist
         it.author = author
         it.description = description
@@ -682,8 +682,11 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         it.chapter_number = chapterNumber.toString().toFloat()
     }
 
+    private val cleanUrl: String
+        get(): String = baseUrl.trimEnd('/')
+
     private val checkedBaseUrl: String
-        get(): String = baseUrl.ifEmpty { throw RuntimeException("Set Tachidesk server url in extension settings") }
+        get(): String = cleanUrl.ifEmpty { throw RuntimeException("Set Tachidesk server url in extension settings") }
 
     private fun paginateResults(mangaList: List<MangaFragment>, page: Int, itemsPerPage: Int): Pair<List<MangaFragment>, Boolean> {
         var hasNextPage = false
