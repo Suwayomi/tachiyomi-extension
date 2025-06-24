@@ -7,7 +7,7 @@ ext {
     extName = 'Suwayomi'
     pkgNameSuffix = 'all.tachidesk'
     extClass = '.Tachidesk'
-    extVersionCode = 16
+    extVersionCode = 17
 }
 
 apply from: "$rootDir/common.gradle"
