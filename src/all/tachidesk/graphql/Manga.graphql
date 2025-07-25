@@ -12,6 +12,9 @@ fragment MangaFragment on MangaType {
     chapters {
         totalCount
     }
+    latestUploadedChapter {
+        uploadDate
+    }
 }
 
 mutation GetManga($mangaId: Int!) {

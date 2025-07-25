@@ -255,6 +255,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         "Author",
         "Date added",
         "Total chapters",
+        "Latest uploaded chapter",
     )
     private val defaultSortByIndex = 0
 
@@ -550,6 +551,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                         "Author" -> searchResults.sortedBy { it.author }
                         "Date added" -> searchResults.sortedBy { it.inLibraryAt }
                         "Total chapters" -> searchResults.sortedBy { it.chapters.totalCount }
+                        "Latest uploaded chapter" -> searchResults.sortedBy { it.latestUploadedChapter?.uploadDate ?: 0 }
                         else -> searchResults
                     }
                     if (!sortByAscending) {
