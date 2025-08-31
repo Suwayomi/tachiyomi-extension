@@ -26,7 +26,7 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
             Tachidesk.AuthMode.SIMPLE_LOGIN -> {
                 val formBody = FormBody.Builder().add("user", user).add("pass", pass).build()
                 val request = Request.Builder().url(baseUrl + "/login.html").post(formBody).build()
-                val result = baseClient.newCall(request).await()
+                val result = baseClient.newBuilder().followRedirects(false).build().newCall(request).await()
                 // login.html redirects when successful
                 if (!result.isRedirect) {
                     var err = result.body.string().replace(".*<div class=\"error\">([^<]*)</div>.*".toRegex(RegexOption.DOT_MATCHES_ALL)) {
