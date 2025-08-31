@@ -9,8 +9,14 @@ import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import com.apollographql.apollo3.ApolloClient
+import com.apollographql.apollo3.api.ApolloRequest
+import com.apollographql.apollo3.api.ApolloResponse
+import com.apollographql.apollo3.api.Operation
 import com.apollographql.apollo3.api.Optional
 import com.apollographql.apollo3.api.http.HttpHeader
+import com.apollographql.apollo3.exception.ApolloException
+import com.apollographql.apollo3.interceptor.ApolloInterceptor
+import com.apollographql.apollo3.interceptor.ApolloInterceptorChain
 import com.apollographql.apollo3.network.okHttpClient
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetCategoriesQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChapterIdQuery
@@ -39,11 +45,14 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.retry
+import kotlinx.coroutines.sync.Mutex
 import okhttp3.Credentials
 import okhttp3.Dns
 import okhttp3.Headers
@@ -55,15 +64,38 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.concurrent.TimeUnit
 import kotlin.CharSequence
+import kotlin.collections.any
 import kotlin.math.min
 
 class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override val name = "Suwayomi"
     override val id = 3100117499901280806L
 
+    private class AuthorizationInterceptor(private val tokenManager: TokenManager) : ApolloInterceptor {
+        private val mutex = Mutex()
+
+        private class UnauthorizedException(val err: String) : ApolloException(err)
+
+        override fun <D : Operation.Data> intercept(request: ApolloRequest<D>, chain: ApolloInterceptorChain): Flow<ApolloResponse<D>> {
+            return chain.proceed(with(tokenManager) { request.newBuilder().addToken() }.build()).map {
+                if (it.isUnauthorized()) {
+                    Log.i("Tachidesk", "${request.requestUuid}/${request.operation} GOT 401!")
+                    tokenManager.refresh()
+                    throw UnauthorizedException("Unauthorized: ${it.errors}")
+                } else {
+                    it
+                }
+            }.retry(1) {
+                it is UnauthorizedException
+            }
+        }
+
+        private fun <D : Operation.Data> ApolloResponse<D>.isUnauthorized(): Boolean = this.hasErrors() && this.errors!!.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") }
+    }
+
     private fun getHeaders(): List<HttpHeader> {
         val headers = mutableListOf<HttpHeader>()
-        if (basePassword.isNotEmpty() && baseLogin.isNotEmpty()) {
+        if (baseAuthMode == AuthMode.BASIC_AUTH && basePassword.isNotEmpty() && baseLogin.isNotEmpty()) {
             val credentials = Credentials.basic(baseLogin, basePassword)
             headers.add(HttpHeader("Authorization", credentials))
         }
@@ -75,6 +107,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             .serverUrl("$serverUrl/api/graphql")
             .okHttpClient(client)
             .httpHeaders(getHeaders())
+            .addInterceptor(AuthorizationInterceptor(TokenManager(baseAuthMode, baseLogin, basePassword, serverUrl, client)))
             .build()
     }
 
@@ -670,7 +703,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         }
     }
 
-    private enum class AuthMode(val title: String) {
+    public enum class AuthMode(val title: String) {
         NONE("None"),
         BASIC_AUTH("Basic Authentication"),
         SIMPLE_LOGIN("Simple Login"),
