@@ -43,6 +43,6 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
     }
 
     companion object {
-        private const val TAG = "Tachidesk.TokenManger"
+        private const val TAG = "Tachidesk.TokenManager"
     }
 }

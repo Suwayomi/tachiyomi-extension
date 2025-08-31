@@ -53,6 +53,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retry
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Credentials
 import okhttp3.Dns
 import okhttp3.Headers
@@ -79,8 +80,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         override fun <D : Operation.Data> intercept(request: ApolloRequest<D>, chain: ApolloInterceptorChain): Flow<ApolloResponse<D>> {
             return chain.proceed(with(tokenManager) { request.newBuilder().addToken() }.build()).map {
                 if (it.isUnauthorized()) {
-                    Log.i("Tachidesk", "${request.requestUuid}/${request.operation} GOT 401!")
-                    tokenManager.refresh()
+                    mutex.withLock { tokenManager.refresh() }
                     throw UnauthorizedException("Unauthorized: ${it.errors}")
                 } else {
                     it
