@@ -614,16 +614,16 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     // ------------- Preferences -------------
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, baseUrl, false, "i.e. http://192.168.1.115:4567"))
-        screen.addPreference(screen.editListPreference(MODE_TITLE, MODE_DEFAULT, baseAuthMode.title, AuthMode.entries.map { it.title }, AuthMode.entries.map { it.toString() }, "Must match Suwayomi's auth_mode setting"))
-        screen.addPreference(screen.editTextPreference(LOGIN_TITLE, LOGIN_DEFAULT, baseLogin, false, ""))
-        screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, basePassword, true, ""))
+        screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, baseUrl, false, "i.e. http://192.168.1.115:4567", ADDRESS_TITLE))
+        screen.addPreference(screen.editListPreference(MODE_TITLE, MODE_DEFAULT, baseAuthMode.title, AuthMode.entries.map { it.title }, AuthMode.entries.map { it.toString() }, "Must match Suwayomi's auth_mode setting", MODE_TITLE))
+        screen.addPreference(screen.editTextPreference(LOGIN_TITLE, LOGIN_DEFAULT, baseLogin, false, "", LOGIN_KEY))
+        screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, basePassword, true, "", PASSWORD_KEY))
     }
 
     /** boilerplate for [EditTextPreference] */
-    private fun PreferenceScreen.editTextPreference(title: String, default: String, value: String, isPassword: Boolean = false, placeholder: String): EditTextPreference {
+    private fun PreferenceScreen.editTextPreference(title: String, default: String, value: String, isPassword: Boolean = false, placeholder: String, key: String): EditTextPreference {
         return EditTextPreference(context).apply {
-            key = title
+            this.key = title
             this.title = title
             summary = value.ifEmpty { placeholder }
             this.setDefaultValue(default)
@@ -637,7 +637,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
             setOnPreferenceChangeListener { _, newValue ->
                 try {
-                    val res = preferences.edit().putString(title, newValue as String).commit()
+                    val res = preferences.edit().putString(key, newValue as String).commit()
                     Toast.makeText(context, "Restart Tachiyomi to apply new setting.", Toast.LENGTH_LONG).show()
                     res
                 } catch (e: Exception) {
@@ -648,9 +648,9 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         }
     }
 
-    private fun PreferenceScreen.editListPreference(title: String, default: String, value: String, entries: List<CharSequence>, entryValues: List<CharSequence>, placeholder: String): ListPreference {
+    private fun PreferenceScreen.editListPreference(title: String, default: String, value: String, entries: List<CharSequence>, entryValues: List<CharSequence>, placeholder: String, key: String): ListPreference {
         return ListPreference(context).apply {
-            key = title
+            this.key = title
             this.title = title
             this.entries = entries.toTypedArray()
             this.entryValues = entryValues.toTypedArray()
@@ -659,7 +659,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
             setOnPreferenceChangeListener { _, newValue ->
                 try {
-                    val res = preferences.edit().putString(title, newValue as String).commit()
+                    val res = preferences.edit().putString(key, newValue as String).commit()
                     Toast.makeText(context, "Restart Tachiyomi to apply new setting.", Toast.LENGTH_LONG).show()
                     res
                 } catch (e: Exception) {
@@ -684,16 +684,18 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         }
         return AuthMode.valueOf(preferences.getString(MODE_TITLE, MODE_DEFAULT)!!)
     }
-    private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_TITLE, null) ?: preferences.getString("Login (Basic Auth)", LOGIN_DEFAULT)!!
-    private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_TITLE, null) ?: preferences.getString("Password (Basic Auth)", PASSWORD_DEFAULT)!!
+    private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_KEY, LOGIN_DEFAULT)!!
+    private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_KEY, PASSWORD_DEFAULT)!!
 
     companion object {
         private const val ADDRESS_TITLE = "Server URL Address"
         private const val ADDRESS_DEFAULT = ""
         private const val MODE_TITLE = "Login Mode"
         private const val MODE_DEFAULT = "NONE"
+        private const val LOGIN_KEY = "Login (Basic Auth)"
         private const val LOGIN_TITLE = "Login"
         private const val LOGIN_DEFAULT = ""
+        private const val PASSWORD_KEY = "Password (Basic Auth)"
         private const val PASSWORD_TITLE = "Password"
         private const val PASSWORD_DEFAULT = ""
     }
