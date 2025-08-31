@@ -182,7 +182,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                 .toFlow()
                 .map {
                     it.dataAssertNoErrors
-                        .fetchManga
+                        .fetchManga!!
                         .manga
                         .mangaFragment
                         .toSManga()
@@ -216,7 +216,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                 .toFlow()
                 .map { response ->
                     response.dataAssertNoErrors
-                        .fetchChapters
+                        .fetchChapters!!
                         .chapters
                         .sortedByDescending { it.chapterFragment.sourceOrder }
                         .map {
@@ -256,7 +256,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                         .toFlow()
                         .map {
                             it.dataAssertNoErrors
-                                .fetchChapterPages
+                                .fetchChapterPages!!
                                 .pages
                                 .mapIndexed { index, url ->
                                     Page(

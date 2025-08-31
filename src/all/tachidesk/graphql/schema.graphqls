@@ -1424,9 +1424,9 @@ type Mutation {
 
   deleteChapterMeta(input: DeleteChapterMetaInput!): DeleteChapterMetaPayload!
 
-  fetchChapterPages(input: FetchChapterPagesInput!): FetchChapterPagesPayload!
+  fetchChapterPages(input: FetchChapterPagesInput!): FetchChapterPagesPayload
 
-  fetchChapters(input: FetchChaptersInput!): FetchChaptersPayload!
+  fetchChapters(input: FetchChaptersInput!): FetchChaptersPayload
 
   setChapterMeta(input: SetChapterMetaInput!): SetChapterMetaPayload!
 
@@ -1470,7 +1470,7 @@ type Mutation {
 
   deleteMangaMeta(input: DeleteMangaMetaInput!): DeleteMangaMetaPayload!
 
-  fetchManga(input: FetchMangaInput!): FetchMangaPayload!
+  fetchManga(input: FetchMangaInput!): FetchMangaPayload
 
   setMangaMeta(input: SetMangaMetaInput!): SetMangaMetaPayload!
 
