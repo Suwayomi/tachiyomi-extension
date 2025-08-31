@@ -6,6 +6,7 @@ import android.text.InputType
 import android.util.Log
 import android.widget.Toast
 import androidx.preference.EditTextPreference
+import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import com.apollographql.apollo3.ApolloClient
 import com.apollographql.apollo3.api.Optional
@@ -53,6 +54,7 @@ import rx.Observable
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.concurrent.TimeUnit
+import kotlin.CharSequence
 import kotlin.math.min
 
 class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
@@ -613,6 +615,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     // ------------- Preferences -------------
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, baseUrl, false, "i.e. http://192.168.1.115:4567"))
+        screen.addPreference(screen.editListPreference(MODE_TITLE, MODE_DEFAULT, baseAuthMode.title, AuthMode.entries.map { it.title }, AuthMode.entries.map { it.toString() }, "Must match Suwayomi's auth_mode setting"))
         screen.addPreference(screen.editTextPreference(LOGIN_TITLE, LOGIN_DEFAULT, baseLogin, false, ""))
         screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, basePassword, true, ""))
     }
@@ -631,6 +634,28 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                     it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
                 }
             }
+
+            setOnPreferenceChangeListener { _, newValue ->
+                try {
+                    val res = preferences.edit().putString(title, newValue as String).commit()
+                    Toast.makeText(context, "Restart Tachiyomi to apply new setting.", Toast.LENGTH_LONG).show()
+                    res
+                } catch (e: Exception) {
+                    Log.e("Tachidesk", "Exception while setting text preference", e)
+                    false
+                }
+            }
+        }
+    }
+
+    private fun PreferenceScreen.editListPreference(title: String, default: String, value: String, entries: List<CharSequence>, entryValues: List<CharSequence>, placeholder: String): ListPreference {
+        return ListPreference(context).apply {
+            key = title
+            this.title = title
+            this.entries = entries.toTypedArray()
+            this.entryValues = entryValues.toTypedArray()
+            summary = value.ifEmpty { placeholder }
+            this.setDefaultValue(default)
 
             setOnPreferenceChangeListener { _, newValue ->
                 try {
