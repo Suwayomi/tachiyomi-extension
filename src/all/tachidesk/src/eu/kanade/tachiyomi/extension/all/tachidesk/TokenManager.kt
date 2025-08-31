@@ -4,11 +4,13 @@ import android.util.Log
 import com.apollographql.apollo3.ApolloClient
 import com.apollographql.apollo3.api.ApolloRequest
 import com.apollographql.apollo3.api.Operation
+import com.apollographql.apollo3.api.http.HttpHeader
 import com.apollographql.apollo3.network.okHttpClient
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.LoginMutation
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.RefreshTokenMutation
 import eu.kanade.tachiyomi.network.await
 import kotlinx.coroutines.flow.single
+import okhttp3.Credentials
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -19,6 +21,29 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
     private var cookies: String = ""
 
     private data class TokenTuple(val accessToken: String?, val refreshToken: String?)
+
+    public fun getBasicHeaders(): List<HttpHeader> {
+        val headers = mutableListOf<HttpHeader>()
+        if (mode == Tachidesk.AuthMode.BASIC_AUTH && pass.isNotEmpty() && user.isNotEmpty()) {
+            val credentials = Credentials.basic(user, pass)
+            headers.add(HttpHeader("Authorization", credentials))
+        }
+        return headers.toList()
+    }
+
+    public fun getHeaders(): List<HttpHeader> {
+        val headers = mutableListOf<HttpHeader>()
+        when (mode) {
+            Tachidesk.AuthMode.NONE -> { }
+            Tachidesk.AuthMode.BASIC_AUTH -> {
+                val credentials = Credentials.basic(user, pass)
+                headers.add(HttpHeader("Authorization", credentials))
+            }
+            Tachidesk.AuthMode.SIMPLE_LOGIN -> headers.add(HttpHeader("Cookie", cookies))
+            Tachidesk.AuthMode.UI_LOGIN -> headers.add(HttpHeader("Authorization", "Bearer $currentToken"))
+        }
+        return headers.toList()
+    }
 
     public fun token(): Any? {
         return when (mode) {
@@ -67,7 +92,7 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
 
                 val apollo = createApolloClient()
                 refreshToken?.let {
-                    Log.v(TAG, "Refresh token known, asking for new access token, token: $it")
+                    Log.v(TAG, "Refresh token known, asking for new access token")
                     val response = apollo.mutation(RefreshTokenMutation(it))
                         .toFlow()
                         .single()

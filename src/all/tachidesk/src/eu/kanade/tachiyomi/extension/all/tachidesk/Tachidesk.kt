@@ -13,7 +13,6 @@ import com.apollographql.apollo3.api.ApolloRequest
 import com.apollographql.apollo3.api.ApolloResponse
 import com.apollographql.apollo3.api.Operation
 import com.apollographql.apollo3.api.Optional
-import com.apollographql.apollo3.api.http.HttpHeader
 import com.apollographql.apollo3.exception.ApolloException
 import com.apollographql.apollo3.interceptor.ApolloInterceptor
 import com.apollographql.apollo3.interceptor.ApolloInterceptorChain
@@ -55,7 +54,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okhttp3.Credentials
 import okhttp3.Dns
 import okhttp3.Headers
 import okhttp3.OkHttpClient
@@ -102,21 +100,12 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         private fun <D : Operation.Data> ApolloResponse<D>.isUnauthorized(): Boolean = this.hasErrors() && this.errors!!.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") }
     }
 
-    private fun getHeaders(): List<HttpHeader> {
-        val headers = mutableListOf<HttpHeader>()
-        if (baseAuthMode == AuthMode.BASIC_AUTH && basePassword.isNotEmpty() && baseLogin.isNotEmpty()) {
-            val credentials = Credentials.basic(baseLogin, basePassword)
-            headers.add(HttpHeader("Authorization", credentials))
-        }
-        return headers.toList()
-    }
-
     private fun createApolloClient(serverUrl: String): ApolloClient {
         return ApolloClient.Builder()
             .serverUrl("$serverUrl/api/graphql")
             .okHttpClient(client)
-            .httpHeaders(getHeaders())
-            .addInterceptor(AuthorizationInterceptor(TokenManager(baseAuthMode, baseLogin, basePassword, serverUrl, client)))
+            .httpHeaders(tokenManager.getBasicHeaders())
+            .addInterceptor(AuthorizationInterceptor(tokenManager))
             .build()
     }
 
@@ -136,10 +125,12 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             .build()
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder().apply {
-        getHeaders().forEach {
+        tokenManager.getHeaders().forEach {
             add(it.name, it.value)
         }
     }
+
+    private val tokenManager by lazy { TokenManager(baseAuthMode, baseLogin, basePassword, checkedBaseUrl, client) }
 
     // ------------- Popular Manga -------------
 
