@@ -78,9 +78,10 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         private class UnauthorizedException(val err: String) : ApolloException(err)
 
         override fun <D : Operation.Data> intercept(request: ApolloRequest<D>, chain: ApolloInterceptorChain): Flow<ApolloResponse<D>> {
+            val oldToken = tokenManager.token()
             return chain.proceed(with(tokenManager) { request.newBuilder().addToken() }.build()).map {
                 if (it.isUnauthorized()) {
-                    mutex.withLock { tokenManager.refresh() }
+                    mutex.withLock { tokenManager.refresh(oldToken) }
                     throw UnauthorizedException("Unauthorized: ${it.errors}")
                 } else {
                     it

@@ -13,6 +13,13 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
     private var refreshToken: String? = null
     private var cookies: String = ""
 
+    public fun token(): Any? {
+        return when (mode) {
+            Tachidesk.AuthMode.SIMPLE_LOGIN -> cookies
+            else -> null
+        }
+    }
+
     public fun <D : Operation.Data> ApolloRequest.Builder<D>.addToken(): ApolloRequest.Builder<D> {
         return when (mode) {
             Tachidesk.AuthMode.SIMPLE_LOGIN -> this.addHttpHeader("Cookie", cookies)
@@ -20,10 +27,15 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
         }
     }
 
-    public suspend fun refresh() {
+    public suspend fun refresh(oldToken: Any?) {
         Log.v(TAG, "Refreshing token for mode $mode")
         when (mode) {
             Tachidesk.AuthMode.SIMPLE_LOGIN -> {
+                if (oldToken != cookies) {
+                    Log.i(TAG, "Refusing to refresh cookie: Changed since original call, another request likely already refreshed, try again")
+                    return
+                }
+
                 val formBody = FormBody.Builder().add("user", user).add("pass", pass).build()
                 val request = Request.Builder().url(baseUrl + "/login.html").post(formBody).build()
                 val result = baseClient.newBuilder().followRedirects(false).build().newCall(request).await()
