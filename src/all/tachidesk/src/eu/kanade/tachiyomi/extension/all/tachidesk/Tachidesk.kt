@@ -97,7 +97,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             }
         }
 
-        private fun <D : Operation.Data> ApolloResponse<D>.isUnauthorized(): Boolean = this.hasErrors() && this.errors!!.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") }
+        private fun <D : Operation.Data> ApolloResponse<D>.isUnauthorized(): Boolean = this.hasErrors() && this.errors!!.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") || it.message == "Unauthorized" }
     }
 
     private fun createApolloClient(serverUrl: String): ApolloClient {
