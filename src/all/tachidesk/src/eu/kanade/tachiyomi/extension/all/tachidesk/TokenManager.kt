@@ -61,6 +61,14 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
         }
     }
 
+    public fun Request.Builder.addToken(): Request.Builder {
+        return when (mode) {
+            Tachidesk.AuthMode.SIMPLE_LOGIN -> this.header("Cookie", cookies)
+            Tachidesk.AuthMode.UI_LOGIN -> this.header("Authorization", "Bearer $currentToken")
+            else -> this
+        }
+    }
+
     public suspend fun refresh(oldToken: Any?) {
         Log.v(TAG, "Refreshing token for mode $mode")
         when (mode) {

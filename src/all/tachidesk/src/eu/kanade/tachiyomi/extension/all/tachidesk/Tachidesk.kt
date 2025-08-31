@@ -52,10 +52,12 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.Dns
 import okhttp3.Headers
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -70,20 +72,19 @@ import kotlin.math.min
 class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override val name = "Suwayomi"
     override val id = 3100117499901280806L
+    private val authMutex = Mutex()
 
-    private class AuthorizationInterceptor(private val tokenManager: TokenManager) : ApolloInterceptor {
-        private val mutex = Mutex()
-
-        private class UnauthorizedException(val err: String) : ApolloException(err)
+    private inner class AuthorizationInterceptor(private val tokenManager: Lazy<TokenManager>) : ApolloInterceptor {
+        private inner class UnauthorizedException(val err: String) : ApolloException(err)
 
         override fun <D : Operation.Data> intercept(request: ApolloRequest<D>, chain: ApolloInterceptorChain): Flow<ApolloResponse<D>> {
-            val oldToken = tokenManager.token()
+            val oldToken = tokenManager.value.token()
             return flow {
                 try {
                     emitAll(
-                        chain.proceed(with(tokenManager) { request.newBuilder().addToken() }.build()).map {
+                        chain.proceed(with(tokenManager.value) { request.newBuilder().addToken() }.build()).map {
                             if (it.isUnauthorized()) {
-                                mutex.withLock { tokenManager.refresh(oldToken) }
+                                authMutex.withLock { tokenManager.value.refresh(oldToken) }
                                 throw UnauthorizedException("Unauthorized: ${it.errors}")
                             } else {
                                 it
@@ -92,7 +93,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                     )
                 } catch (_: UnauthorizedException) {
                     Log.i(TAG, "Was Unauthorizied, re-running with new token")
-                    emitAll(chain.proceed(with(tokenManager) { request.newBuilder().addToken() }.build()))
+                    emitAll(chain.proceed(with(tokenManager.value) { request.newBuilder().addToken() }.build()))
                 }
             }
         }
@@ -100,11 +101,35 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         private fun <D : Operation.Data> ApolloResponse<D>.isUnauthorized(): Boolean = this.hasErrors() && this.errors!!.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") || it.message == "Unauthorized" }
     }
 
+    private inner class OkAuthorizationInterceptor(private val tokenManager: Lazy<TokenManager>) : Interceptor {
+        private inner class UnauthorizedException(val err: String) : Exception(err)
+
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val oldToken = tokenManager.value.token()
+            return try {
+                val response = chain.proceed(with(tokenManager.value) { chain.request().newBuilder().addToken() }.build())
+                if (response.isUnauthorized()) {
+                    runBlocking {
+                        authMutex.withLock { tokenManager.value.refresh(oldToken) }
+                    }
+                    throw UnauthorizedException("Unauthorized")
+                } else {
+                    response
+                }
+            } catch (_: UnauthorizedException) {
+                Log.i(TAG, "Was Unauthorizied, re-running with new token")
+                chain.proceed(with(tokenManager.value) { chain.request().newBuilder().addToken() }.build())
+            }
+        }
+
+        private fun Response.isUnauthorized(): Boolean = this.code == 401
+    }
+
     private fun createApolloClient(serverUrl: String): ApolloClient {
         return ApolloClient.Builder()
             .serverUrl("$serverUrl/api/graphql")
             .okHttpClient(client)
-            .httpHeaders(tokenManager.getBasicHeaders())
+            .httpHeaders(tokenManager.value.getBasicHeaders())
             .addInterceptor(AuthorizationInterceptor(tokenManager))
             .build()
     }
@@ -118,19 +143,31 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override val lang = "all"
     override val supportsLatest = true
 
+    private val tokenManager = lazy {
+        TokenManager(
+            baseAuthMode,
+            baseLogin,
+            basePassword,
+            checkedBaseUrl,
+            network.client.newBuilder()
+                .dns(Dns.SYSTEM) // don't use DNS over HTTPS as it breaks IP addressing
+                .callTimeout(2, TimeUnit.MINUTES)
+                .build(),
+        )
+    }
+
     override val client: OkHttpClient =
         network.client.newBuilder()
             .dns(Dns.SYSTEM) // don't use DNS over HTTPS as it breaks IP addressing
             .callTimeout(2, TimeUnit.MINUTES)
+            .addInterceptor(OkAuthorizationInterceptor(tokenManager))
             .build()
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder().apply {
-        tokenManager.getHeaders().forEach {
+        tokenManager.value.getHeaders().forEach {
             add(it.name, it.value)
         }
     }
-
-    private val tokenManager by lazy { TokenManager(baseAuthMode, baseLogin, basePassword, checkedBaseUrl, client) }
 
     // ------------- Popular Manga -------------
 
