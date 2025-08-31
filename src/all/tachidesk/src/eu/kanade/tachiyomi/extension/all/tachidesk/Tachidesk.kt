@@ -78,6 +78,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     override val baseUrl by lazy { getPrefBaseUrl() }
     private val apolloClient = lazy { createApolloClient(checkedBaseUrl) }
+    private val baseAuthMode by lazy { getPrefBaseAuthMode() }
     private val baseLogin by lazy { getPrefBaseLogin() }
     private val basePassword by lazy { getPrefBasePassword() }
 
@@ -644,16 +645,31 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         }
     }
 
+    private enum class AuthMode(val title: String) {
+        NONE("None"),
+        BASIC_AUTH("Basic Authentication"),
+        SIMPLE_LOGIN("Simple Login"),
+        UI_LOGIN("UI Login"),
+    }
+
     private fun getPrefBaseUrl(): String = preferences.getString(ADDRESS_TITLE, ADDRESS_DEFAULT)!!
-    private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_TITLE, LOGIN_DEFAULT)!!
-    private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_TITLE, PASSWORD_DEFAULT)!!
+    private fun getPrefBaseAuthMode(): AuthMode {
+        if (!preferences.contains(MODE_TITLE) && basePassword.isNotEmpty() && baseLogin.isNotEmpty()) {
+            return AuthMode.BASIC_AUTH
+        }
+        return AuthMode.valueOf(preferences.getString(MODE_TITLE, MODE_DEFAULT)!!)
+    }
+    private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_TITLE, LOGIN_DEFAULT) ?: preferences.getString("Login (Basic Auth)", LOGIN_DEFAULT)!!
+    private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_TITLE, PASSWORD_DEFAULT) ?: preferences.getString("Password (Basic Auth)", PASSWORD_DEFAULT)!!
 
     companion object {
         private const val ADDRESS_TITLE = "Server URL Address"
         private const val ADDRESS_DEFAULT = ""
-        private const val LOGIN_TITLE = "Login (Basic Auth)"
+        private const val MODE_TITLE = "Login Mode"
+        private const val MODE_DEFAULT = "NONE"
+        private const val LOGIN_TITLE = "Login"
         private const val LOGIN_DEFAULT = ""
-        private const val PASSWORD_TITLE = "Password (Basic Auth)"
+        private const val PASSWORD_TITLE = "Password"
         private const val PASSWORD_DEFAULT = ""
     }
 
