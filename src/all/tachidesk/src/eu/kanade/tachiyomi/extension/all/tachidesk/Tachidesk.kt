@@ -684,8 +684,8 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         }
         return AuthMode.valueOf(preferences.getString(MODE_TITLE, MODE_DEFAULT)!!)
     }
-    private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_TITLE, LOGIN_DEFAULT) ?: preferences.getString("Login (Basic Auth)", LOGIN_DEFAULT)!!
-    private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_TITLE, PASSWORD_DEFAULT) ?: preferences.getString("Password (Basic Auth)", PASSWORD_DEFAULT)!!
+    private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_TITLE, null) ?: preferences.getString("Login (Basic Auth)", LOGIN_DEFAULT)!!
+    private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_TITLE, null) ?: preferences.getString("Password (Basic Auth)", PASSWORD_DEFAULT)!!
 
     companion object {
         private const val ADDRESS_TITLE = "Server URL Address"
