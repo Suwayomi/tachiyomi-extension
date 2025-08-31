@@ -47,11 +47,12 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.retry
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.Credentials
@@ -79,15 +80,22 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
         override fun <D : Operation.Data> intercept(request: ApolloRequest<D>, chain: ApolloInterceptorChain): Flow<ApolloResponse<D>> {
             val oldToken = tokenManager.token()
-            return chain.proceed(with(tokenManager) { request.newBuilder().addToken() }.build()).map {
-                if (it.isUnauthorized()) {
-                    mutex.withLock { tokenManager.refresh(oldToken) }
-                    throw UnauthorizedException("Unauthorized: ${it.errors}")
-                } else {
-                    it
+            return flow {
+                try {
+                    emitAll(
+                        chain.proceed(with(tokenManager) { request.newBuilder().addToken() }.build()).map {
+                            if (it.isUnauthorized()) {
+                                mutex.withLock { tokenManager.refresh(oldToken) }
+                                throw UnauthorizedException("Unauthorized: ${it.errors}")
+                            } else {
+                                it
+                            }
+                        },
+                    )
+                } catch (_: UnauthorizedException) {
+                    Log.i(TAG, "Was Unauthorizied, re-running with new token")
+                    emitAll(chain.proceed(with(tokenManager) { request.newBuilder().addToken() }.build()))
                 }
-            }.retry(1) {
-                it is UnauthorizedException
             }
         }
 
@@ -675,7 +683,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                     Toast.makeText(context, "Restart Tachiyomi to apply new setting.", Toast.LENGTH_LONG).show()
                     res
                 } catch (e: Exception) {
-                    Log.e("Tachidesk", "Exception while setting text preference", e)
+                    Log.e(TAG, "Exception while setting text preference", e)
                     false
                 }
             }
@@ -697,7 +705,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                     Toast.makeText(context, "Restart Tachiyomi to apply new setting.", Toast.LENGTH_LONG).show()
                     res
                 } catch (e: Exception) {
-                    Log.e("Tachidesk", "Exception while setting text preference", e)
+                    Log.e(TAG, "Exception while setting text preference", e)
                     false
                 }
             }
@@ -732,6 +740,8 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         private const val PASSWORD_KEY = "Password (Basic Auth)"
         private const val PASSWORD_TITLE = "Password"
         private const val PASSWORD_DEFAULT = ""
+
+        private const val TAG = "Tachidesk"
     }
 
     // ------------- Not Used -------------
