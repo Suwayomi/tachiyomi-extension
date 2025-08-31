@@ -1509,6 +1509,10 @@ type Mutation {
   updateLibraryManga(input: UpdateLibraryMangaInput!): UpdateLibraryMangaPayload!
 
   updateStop(input: UpdateStopInput!): UpdateStopPayload!
+
+  login(input: LoginInput!): LoginPayload!
+
+  refreshToken(input: RefreshTokenInput!): RefreshTokenPayload!
 }
 
 union Node = CategoryMetaType|CategoryType|ChapterMetaType|ChapterType|DownloadType|ExtensionType|GlobalMetaType|MangaMetaType|MangaType|PartialSettingsType|SettingsType|SourceMetaType|SourceType|TrackRecordType|TrackerType
@@ -2979,6 +2983,34 @@ type WebUIUpdateStatus {
   progress: Int!
 
   state: UpdateState!
+}
+
+input LoginInput {
+  clientMutationId: String
+
+  username: String!
+
+  password: String!
+}
+
+type LoginPayload {
+  clientMutationId: String
+
+  accessToken: String!
+
+  refreshToken: String!
+}
+
+input RefreshTokenInput {
+  clientMutationId: String
+
+  refreshToken: String!
+}
+
+type RefreshTokenPayload {
+  clientMutationId: String
+
+  accessToken: String!
 }
 
 type __Directive {

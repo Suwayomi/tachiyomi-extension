@@ -1,9 +1,14 @@
 package eu.kanade.tachiyomi.extension.all.tachidesk
 
 import android.util.Log
+import com.apollographql.apollo3.ApolloClient
 import com.apollographql.apollo3.api.ApolloRequest
 import com.apollographql.apollo3.api.Operation
+import com.apollographql.apollo3.network.okHttpClient
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.LoginMutation
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.RefreshTokenMutation
 import eu.kanade.tachiyomi.network.await
+import kotlinx.coroutines.flow.single
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,9 +18,12 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
     private var refreshToken: String? = null
     private var cookies: String = ""
 
+    private data class TokenTuple(val accessToken: String?, val refreshToken: String?)
+
     public fun token(): Any? {
         return when (mode) {
             Tachidesk.AuthMode.SIMPLE_LOGIN -> cookies
+            Tachidesk.AuthMode.UI_LOGIN -> TokenTuple(currentToken, refreshToken)
             else -> null
         }
     }
@@ -23,6 +31,7 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
     public fun <D : Operation.Data> ApolloRequest.Builder<D>.addToken(): ApolloRequest.Builder<D> {
         return when (mode) {
             Tachidesk.AuthMode.SIMPLE_LOGIN -> this.addHttpHeader("Cookie", cookies)
+            Tachidesk.AuthMode.UI_LOGIN -> this.addHttpHeader("Authorization", "Bearer $currentToken")
             else -> this
         }
     }
@@ -50,8 +59,46 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
                 cookies = result.header("Set-Cookie", "")!!
                 Log.v(TAG, "Cookie successfully refreshed")
             }
+            Tachidesk.AuthMode.UI_LOGIN -> {
+                if (oldToken != TokenTuple(currentToken, refreshToken)) {
+                    Log.i(TAG, "Refusing to refresh token: Changed since original call, another request likely already refreshed, try again")
+                    return
+                }
+
+                val apollo = createApolloClient()
+                refreshToken?.let {
+                    Log.v(TAG, "Refresh token known, asking for new access token, token: $it")
+                    val response = apollo.mutation(RefreshTokenMutation(it))
+                        .toFlow()
+                        .single()
+                    if (response.hasErrors()) {
+                        Log.w(TAG, "Invalid refresh token")
+                        this.refreshToken = null
+                    }
+
+                    this.currentToken = response.dataAssertNoErrors.refreshToken.accessToken
+                    return
+                }
+
+                Log.v(TAG, "No previous login, asking for tokens with username and password")
+                val response = apollo.mutation(LoginMutation(user, pass))
+                    .toFlow()
+                    .single()
+                if (response.hasErrors()) {
+                    Log.w(TAG, "Invalid credentials")
+                }
+                currentToken = response.dataAssertNoErrors.login.accessToken
+                refreshToken = response.dataAssertNoErrors.login.refreshToken
+            }
             else -> {}
         }
+    }
+
+    private fun createApolloClient(): ApolloClient {
+        return ApolloClient.Builder()
+            .serverUrl("$baseUrl/api/graphql")
+            .okHttpClient(baseClient)
+            .build()
     }
 
     companion object {

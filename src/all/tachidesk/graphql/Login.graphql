@@ -1,0 +1,12 @@
+mutation Login($user: String!, $pass: String!) {
+    login(input: {username: $user, password: $pass}) {
+        accessToken
+        refreshToken
+    }
+}
+
+mutation RefreshToken($refreshToken: String!) {
+    refreshToken(input: {refreshToken: $refreshToken}) {
+        accessToken
+    }
+}
