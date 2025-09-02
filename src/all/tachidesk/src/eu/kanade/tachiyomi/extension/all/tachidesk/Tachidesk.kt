@@ -6,10 +6,16 @@ import android.text.InputType
 import android.util.Log
 import android.widget.Toast
 import androidx.preference.EditTextPreference
+import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import com.apollographql.apollo3.ApolloClient
+import com.apollographql.apollo3.api.ApolloRequest
+import com.apollographql.apollo3.api.ApolloResponse
+import com.apollographql.apollo3.api.Operation
 import com.apollographql.apollo3.api.Optional
-import com.apollographql.apollo3.api.http.HttpHeader
+import com.apollographql.apollo3.exception.ApolloException
+import com.apollographql.apollo3.interceptor.ApolloInterceptor
+import com.apollographql.apollo3.interceptor.ApolloInterceptorChain
 import com.apollographql.apollo3.network.okHttpClient
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetCategoriesQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChapterIdQuery
@@ -38,14 +44,20 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
-import okhttp3.Credentials
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Dns
 import okhttp3.Headers
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -53,45 +65,106 @@ import rx.Observable
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.concurrent.TimeUnit
+import kotlin.CharSequence
+import kotlin.collections.any
 import kotlin.math.min
 
 class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override val name = "Suwayomi"
     override val id = 3100117499901280806L
+    private val authMutex = Mutex()
 
-    private fun getHeaders(): List<HttpHeader> {
-        val headers = mutableListOf<HttpHeader>()
-        if (basePassword.isNotEmpty() && baseLogin.isNotEmpty()) {
-            val credentials = Credentials.basic(baseLogin, basePassword)
-            headers.add(HttpHeader("Authorization", credentials))
+    private inner class AuthorizationInterceptor(private val tokenManager: Lazy<TokenManager>) : ApolloInterceptor {
+        private inner class UnauthorizedException(val err: String) : ApolloException(err)
+
+        override fun <D : Operation.Data> intercept(request: ApolloRequest<D>, chain: ApolloInterceptorChain): Flow<ApolloResponse<D>> {
+            val oldToken = tokenManager.value.token()
+            return flow {
+                try {
+                    emitAll(
+                        chain.proceed(with(tokenManager.value) { request.newBuilder().addToken() }.build()).map {
+                            if (it.isUnauthorized()) {
+                                authMutex.withLock { tokenManager.value.refresh(oldToken) }
+                                throw UnauthorizedException("Unauthorized: ${it.errors}")
+                            } else {
+                                it
+                            }
+                        },
+                    )
+                } catch (_: UnauthorizedException) {
+                    Log.i(TAG, "Was Unauthorizied, re-running with new token")
+                    emitAll(chain.proceed(with(tokenManager.value) { request.newBuilder().addToken() }.build()))
+                }
+            }
         }
-        return headers.toList()
+
+        private fun <D : Operation.Data> ApolloResponse<D>.isUnauthorized(): Boolean = this.hasErrors() && this.errors!!.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") || it.message == "Unauthorized" }
+    }
+
+    private inner class OkAuthorizationInterceptor(private val tokenManager: Lazy<TokenManager>) : Interceptor {
+        private inner class UnauthorizedException(val err: String) : Exception(err)
+
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val oldToken = tokenManager.value.token()
+            return try {
+                val response = chain.proceed(with(tokenManager.value) { chain.request().newBuilder().addToken() }.build())
+                if (response.isUnauthorized()) {
+                    runBlocking {
+                        authMutex.withLock { tokenManager.value.refresh(oldToken) }
+                    }
+                    throw UnauthorizedException("Unauthorized")
+                } else {
+                    response
+                }
+            } catch (_: UnauthorizedException) {
+                Log.i(TAG, "Was Unauthorizied, re-running with new token")
+                chain.proceed(with(tokenManager.value) { chain.request().newBuilder().addToken() }.build())
+            }
+        }
+
+        private fun Response.isUnauthorized(): Boolean = this.code == 401
     }
 
     private fun createApolloClient(serverUrl: String): ApolloClient {
         return ApolloClient.Builder()
             .serverUrl("$serverUrl/api/graphql")
             .okHttpClient(client)
-            .httpHeaders(getHeaders())
+            .httpHeaders(tokenManager.value.getBasicHeaders())
+            .addInterceptor(AuthorizationInterceptor(tokenManager))
             .build()
     }
 
     override val baseUrl by lazy { getPrefBaseUrl() }
     private val apolloClient = lazy { createApolloClient(checkedBaseUrl) }
+    private val baseAuthMode by lazy { getPrefBaseAuthMode() }
     private val baseLogin by lazy { getPrefBaseLogin() }
     private val basePassword by lazy { getPrefBasePassword() }
 
     override val lang = "all"
     override val supportsLatest = true
 
+    private val tokenManager = lazy {
+        TokenManager(
+            baseAuthMode,
+            baseLogin,
+            basePassword,
+            checkedBaseUrl,
+            network.client.newBuilder()
+                .dns(Dns.SYSTEM) // don't use DNS over HTTPS as it breaks IP addressing
+                .callTimeout(2, TimeUnit.MINUTES)
+                .build(),
+        )
+    }
+
     override val client: OkHttpClient =
         network.client.newBuilder()
             .dns(Dns.SYSTEM) // don't use DNS over HTTPS as it breaks IP addressing
             .callTimeout(2, TimeUnit.MINUTES)
+            .addInterceptor(OkAuthorizationInterceptor(tokenManager))
             .build()
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder().apply {
-        getHeaders().forEach {
+        tokenManager.value.getHeaders().forEach {
             add(it.name, it.value)
         }
     }
@@ -146,7 +219,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                 .toFlow()
                 .map {
                     it.dataAssertNoErrors
-                        .fetchManga
+                        .fetchManga!!
                         .manga
                         .mangaFragment
                         .toSManga()
@@ -180,7 +253,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                 .toFlow()
                 .map { response ->
                     response.dataAssertNoErrors
-                        .fetchChapters
+                        .fetchChapters!!
                         .chapters
                         .sortedByDescending { it.chapterFragment.sourceOrder }
                         .map {
@@ -220,7 +293,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                         .toFlow()
                         .map {
                             it.dataAssertNoErrors
-                                .fetchChapterPages
+                                .fetchChapterPages!!
                                 .pages
                                 .mapIndexed { index, url ->
                                     Page(
@@ -611,15 +684,16 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     // ------------- Preferences -------------
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, baseUrl, false, "i.e. http://192.168.1.115:4567"))
-        screen.addPreference(screen.editTextPreference(LOGIN_TITLE, LOGIN_DEFAULT, baseLogin, false, ""))
-        screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, basePassword, true, ""))
+        screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, baseUrl, false, "i.e. http://192.168.1.115:4567", ADDRESS_TITLE))
+        screen.addPreference(screen.editListPreference(MODE_TITLE, MODE_DEFAULT, baseAuthMode.title, AuthMode.entries.map { it.title }, AuthMode.entries.map { it.toString() }, "Must match Suwayomi's auth_mode setting", MODE_TITLE))
+        screen.addPreference(screen.editTextPreference(LOGIN_TITLE, LOGIN_DEFAULT, baseLogin, false, "", LOGIN_KEY))
+        screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, basePassword, true, "", PASSWORD_KEY))
     }
 
     /** boilerplate for [EditTextPreference] */
-    private fun PreferenceScreen.editTextPreference(title: String, default: String, value: String, isPassword: Boolean = false, placeholder: String): EditTextPreference {
+    private fun PreferenceScreen.editTextPreference(title: String, default: String, value: String, isPassword: Boolean = false, placeholder: String, key: String): EditTextPreference {
         return EditTextPreference(context).apply {
-            key = title
+            this.key = title
             this.title = title
             summary = value.ifEmpty { placeholder }
             this.setDefaultValue(default)
@@ -633,28 +707,69 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
             setOnPreferenceChangeListener { _, newValue ->
                 try {
-                    val res = preferences.edit().putString(title, newValue as String).commit()
+                    val res = preferences.edit().putString(key, newValue as String).commit()
                     Toast.makeText(context, "Restart Tachiyomi to apply new setting.", Toast.LENGTH_LONG).show()
                     res
                 } catch (e: Exception) {
-                    Log.e("Tachidesk", "Exception while setting text preference", e)
+                    Log.e(TAG, "Exception while setting text preference", e)
                     false
                 }
             }
         }
     }
 
+    private fun PreferenceScreen.editListPreference(title: String, default: String, value: String, entries: List<CharSequence>, entryValues: List<CharSequence>, placeholder: String, key: String): ListPreference {
+        return ListPreference(context).apply {
+            this.key = title
+            this.title = title
+            this.entries = entries.toTypedArray()
+            this.entryValues = entryValues.toTypedArray()
+            summary = value.ifEmpty { placeholder }
+            this.setDefaultValue(default)
+
+            setOnPreferenceChangeListener { _, newValue ->
+                try {
+                    val res = preferences.edit().putString(key, newValue as String).commit()
+                    Toast.makeText(context, "Restart Tachiyomi to apply new setting.", Toast.LENGTH_LONG).show()
+                    res
+                } catch (e: Exception) {
+                    Log.e(TAG, "Exception while setting text preference", e)
+                    false
+                }
+            }
+        }
+    }
+
+    public enum class AuthMode(val title: String) {
+        NONE("None"),
+        BASIC_AUTH("Basic Authentication"),
+        SIMPLE_LOGIN("Simple Login"),
+        UI_LOGIN("UI Login"),
+    }
+
     private fun getPrefBaseUrl(): String = preferences.getString(ADDRESS_TITLE, ADDRESS_DEFAULT)!!
-    private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_TITLE, LOGIN_DEFAULT)!!
-    private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_TITLE, PASSWORD_DEFAULT)!!
+    private fun getPrefBaseAuthMode(): AuthMode {
+        if (!preferences.contains(MODE_TITLE) && basePassword.isNotEmpty() && baseLogin.isNotEmpty()) {
+            return AuthMode.BASIC_AUTH
+        }
+        return AuthMode.valueOf(preferences.getString(MODE_TITLE, MODE_DEFAULT)!!)
+    }
+    private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_KEY, LOGIN_DEFAULT)!!
+    private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_KEY, PASSWORD_DEFAULT)!!
 
     companion object {
         private const val ADDRESS_TITLE = "Server URL Address"
         private const val ADDRESS_DEFAULT = ""
-        private const val LOGIN_TITLE = "Login (Basic Auth)"
+        private const val MODE_TITLE = "Login Mode"
+        private const val MODE_DEFAULT = "NONE"
+        private const val LOGIN_KEY = "Login (Basic Auth)"
+        private const val LOGIN_TITLE = "Login"
         private const val LOGIN_DEFAULT = ""
-        private const val PASSWORD_TITLE = "Password (Basic Auth)"
+        private const val PASSWORD_KEY = "Password (Basic Auth)"
+        private const val PASSWORD_TITLE = "Password"
         private const val PASSWORD_DEFAULT = ""
+
+        private const val TAG = "Tachidesk"
     }
 
     // ------------- Not Used -------------
