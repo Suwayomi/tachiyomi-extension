@@ -109,6 +109,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             return try {
                 val response = chain.proceed(with(tokenManager.value) { chain.request().newBuilder().addToken() }.build())
                 if (response.isUnauthorized()) {
+                    response.close()
                     runBlocking {
                         authMutex.withLock { tokenManager.value.refresh(oldToken) }
                     }
