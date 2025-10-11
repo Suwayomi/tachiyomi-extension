@@ -76,7 +76,7 @@ import kotlin.CharSequence
 import kotlin.collections.any
 import kotlin.math.min
 
-class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource(), SuwayomiExtensionInterface {
+class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override val name = "Suwayomi"
     override val id = 3100117499901280806L
     private val authMutex = Mutex()
@@ -670,56 +670,60 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource(), SuwayomiExt
 
     // ------------- Tracking -------------
 
-    override suspend fun getTrackSearch(mangaId: Int): TrackMangaFragment =
-        apolloClient.value
-            .query(
-                GetMangaStateQuery(mangaId),
-            )
-            .toFlow()
-            .map {
-                it.dataAssertNoErrors
-                    .manga
-                    .mangaFragment
-                    .toTrackFragment()
-            }
-            .first()
+    inner class TrackHelper : SuwayomiExtensionInterface {
+        override suspend fun getTrackSearch(mangaId: Int): TrackMangaFragment =
+            apolloClient.value
+                .query(
+                    GetMangaStateQuery(mangaId),
+                )
+                .toFlow()
+                .map {
+                    it.dataAssertNoErrors
+                        .manga
+                        .mangaFragment
+                        .toTrackFragment()
+                }
+                .first()
 
-    override suspend fun updateProgress(mangaId: Int, lastChapterReadNumber: Double) {
-        val chaptersToMark = apolloClient.value
-            .query(
-                GetMangaUnreadChaptersQuery(mangaId),
-            )
-            .toFlow()
-            .map {
-                it.dataAssertNoErrors
-                    .chapters
-                    .nodes
-                    .mapNotNull { n -> n.id.takeIf { n.chapterNumber <= lastChapterReadNumber } }
-            }
-            .first()
-        apolloClient.value
-            .mutation(
-                MarkChaptersReadMutation(chaptersToMark),
-            )
-            .toFlow()
-            .map {
-                it.dataAssertNoErrors
-            }
-            .first()
-        try {
+        override suspend fun updateProgress(mangaId: Int, lastChapterReadNumber: Double) {
+            val chaptersToMark = apolloClient.value
+                .query(
+                    GetMangaUnreadChaptersQuery(mangaId),
+                )
+                .toFlow()
+                .map {
+                    it.dataAssertNoErrors
+                        .chapters
+                        .nodes
+                        .mapNotNull { n -> n.id.takeIf { n.chapterNumber <= lastChapterReadNumber } }
+                }
+                .first()
             apolloClient.value
                 .mutation(
-                    TrackMangaMutation(mangaId),
+                    MarkChaptersReadMutation(chaptersToMark),
                 )
                 .toFlow()
                 .map {
                     it.dataAssertNoErrors
                 }
                 .first()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to update remote tracker", e)
+            try {
+                apolloClient.value
+                    .mutation(
+                        TrackMangaMutation(mangaId),
+                    )
+                    .toFlow()
+                    .map {
+                        it.dataAssertNoErrors
+                    }
+                    .first()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to update remote tracker", e)
+            }
         }
     }
+
+    fun getTrackingExtension(): SuwayomiExtensionInterface = TrackHelper()
 
     // ------------- Settings -------------
 
