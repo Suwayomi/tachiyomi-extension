@@ -32,6 +32,8 @@ dependencies {
         exclude group: 'org.jetbrains.kotlin'
         exclude group: 'org.jetbrains.kotlinx'
     }
+
+    compileOnly(project(":stub"))
 }
 
 configurations.configureEach {

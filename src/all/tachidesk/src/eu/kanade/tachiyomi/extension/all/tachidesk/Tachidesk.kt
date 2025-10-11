@@ -17,12 +17,18 @@ import com.apollographql.apollo3.exception.ApolloException
 import com.apollographql.apollo3.interceptor.ApolloInterceptor
 import com.apollographql.apollo3.interceptor.ApolloInterceptorChain
 import com.apollographql.apollo3.network.okHttpClient
+import eu.kanade.tachiyomi.data.track.suwayomi.SuwayomiExtensionInterface
+import eu.kanade.tachiyomi.data.track.suwayomi.TrackMangaFragment
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetCategoriesQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChapterIdQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChaptersMutation
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetMangaMutation
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetMangaStateQuery
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetMangaUnreadChaptersQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetPagesMutation
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.MarkChaptersReadMutation
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.SearchMangaQuery
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.TrackMangaMutation
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.CategoryFragment
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.ChapterFragment
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.MangaFragment
@@ -47,6 +53,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
@@ -69,7 +76,7 @@ import kotlin.CharSequence
 import kotlin.collections.any
 import kotlin.math.min
 
-class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
+class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource(), SuwayomiExtensionInterface {
     override val name = "Suwayomi"
     override val id = 3100117499901280806L
     private val authMutex = Mutex()
@@ -661,6 +668,59 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     // ------------- Images -------------
     override fun imageRequest(page: Page) = GET(page.imageUrl!!, headers)
 
+    // ------------- Tracking -------------
+
+    override suspend fun getTrackSearch(mangaId: Int): TrackMangaFragment =
+        apolloClient.value
+            .query(
+                GetMangaStateQuery(mangaId),
+            )
+            .toFlow()
+            .map {
+                it.dataAssertNoErrors
+                    .manga
+                    .mangaFragment
+                    .toTrackFragment()
+            }
+            .first()
+
+    override suspend fun updateProgress(mangaId: Int, lastChapterReadNumber: Double) {
+        val chaptersToMark = apolloClient.value
+            .query(
+                GetMangaUnreadChaptersQuery(mangaId),
+            )
+            .toFlow()
+            .map {
+                it.dataAssertNoErrors
+                    .chapters
+                    .nodes
+                    .mapNotNull { n -> n.id.takeIf { n.chapterNumber <= lastChapterReadNumber } }
+            }
+            .first()
+        apolloClient.value
+            .mutation(
+                MarkChaptersReadMutation(chaptersToMark),
+            )
+            .toFlow()
+            .map {
+                it.dataAssertNoErrors
+            }
+            .first()
+        try {
+            apolloClient.value
+                .mutation(
+                    TrackMangaMutation(mangaId),
+                )
+                .toFlow()
+                .map {
+                    it.dataAssertNoErrors
+                }
+                .first()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to update remote tracker", e)
+        }
+    }
+
     // ------------- Settings -------------
 
     private val preferences: SharedPreferences by lazy {
@@ -807,6 +867,23 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         it.scanlator = scanlator
         it.chapter_number = chapterNumber.toString().toFloat()
     }
+
+    private fun MangaFragment.toTrackFragment() = TrackMangaFragment(
+        artist = artist,
+        author = author,
+        description = description,
+        id = id,
+        status = status.name,
+        thumbnailUrl = thumbnailUrl,
+        title = title,
+        url = url,
+        genre = genre,
+        inLibraryAt = inLibraryAt,
+        chapters = chapters.totalCount,
+        latestReadChapter = latestReadChapter?.chapterNumber,
+        unreadCount = unreadCount,
+        downloadCount = downloadCount,
+    )
 
     private val cleanUrl: String
         get(): String = baseUrl.trimEnd('/')

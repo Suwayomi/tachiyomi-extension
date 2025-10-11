@@ -20,6 +20,7 @@ fragment MangaFragment on MangaType {
     }
     latestReadChapter {
         lastReadAt
+        chapterNumber
     }
     unreadCount
     downloadCount
@@ -30,6 +31,12 @@ mutation GetManga($mangaId: Int!) {
         manga {
             ...MangaFragment
         }
+    }
+}
+
+query GetMangaState($mangaId: Int!) {
+    manga(id: $mangaId) {
+        ...MangaFragment
     }
 }
 
@@ -44,4 +51,21 @@ query SearchManga($filter: [MangaFilterInput!]) {
             ...MangaFragment
         }
     }
+}
+
+query GetMangaUnreadChapters($mangaId: Int!) {
+  chapters(condition: {mangaId: $mangaId, isRead: false}) {
+    nodes {
+      id
+      chapterNumber
+    }
+  }
+}
+
+mutation TrackManga($mangaId: Int!) {
+  trackProgress(input: {mangaId: $mangaId}) {
+    trackRecords {
+      lastChapterRead
+    }
+  }
 }

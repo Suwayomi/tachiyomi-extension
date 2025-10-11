@@ -1,4 +1,5 @@
 include(":core")
+include(":stub")
 
 // Load all modules under /lib
 File(rootDir, "lib").eachDir {

@@ -30,3 +30,11 @@ mutation GetPages($chapterId: Int!) {
         pages
     }
 }
+
+mutation MarkChaptersRead($chapters: [Int!]!) {
+  updateChapters(input: {ids: $chapters, patch: {isRead: true}}) {
+    chapters {
+      id
+    }
+  }
+}
