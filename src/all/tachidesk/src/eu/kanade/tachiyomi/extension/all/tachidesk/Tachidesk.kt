@@ -9,13 +9,7 @@ import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import com.apollographql.apollo3.ApolloClient
-import com.apollographql.apollo3.api.ApolloRequest
-import com.apollographql.apollo3.api.ApolloResponse
-import com.apollographql.apollo3.api.Operation
 import com.apollographql.apollo3.api.Optional
-import com.apollographql.apollo3.exception.ApolloException
-import com.apollographql.apollo3.interceptor.ApolloInterceptor
-import com.apollographql.apollo3.interceptor.ApolloInterceptorChain
 import com.apollographql.apollo3.network.okHttpClient
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetCategoriesQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChapterIdQuery
@@ -44,11 +38,8 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -76,38 +67,11 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override val name = "Suwayomi"
     override val id = 3100117499901280806L
 
-    private val authMutex = Mutex()
     private val json: Json by lazy { Json { ignoreUnknownKeys = true } }
-
-    private inner class AuthorizationInterceptor(private val tokenManager: Lazy<TokenManager>) : ApolloInterceptor {
-        private inner class UnauthorizedException(val err: String) : ApolloException(err)
-
-        override fun <D : Operation.Data> intercept(request: ApolloRequest<D>, chain: ApolloInterceptorChain): Flow<ApolloResponse<D>> {
-            val oldToken = tokenManager.value.token()
-            return flow {
-                try {
-                    emitAll(
-                        chain.proceed(with(tokenManager.value) { request.newBuilder().addToken() }.build()).map {
-                            if (it.isUnauthorized()) {
-                                authMutex.withLock { tokenManager.value.refresh(oldToken) }
-                                throw UnauthorizedException("Unauthorized: ${it.errors}")
-                            } else {
-                                it
-                            }
-                        },
-                    )
-                } catch (_: UnauthorizedException) {
-                    Log.i(TAG, "Was Unauthorizied, re-running with new token")
-                    emitAll(chain.proceed(with(tokenManager.value) { request.newBuilder().addToken() }.build()))
-                }
-            }
-        }
-
-        private fun <D : Operation.Data> ApolloResponse<D>.isUnauthorized(): Boolean = this.hasErrors() && this.errors!!.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") || it.message == "Unauthorized" }
-    }
 
     private inner class OkAuthorizationInterceptor(private val tokenManager: Lazy<TokenManager>) : Interceptor {
         private inner class UnauthorizedException(val err: String) : Exception(err)
+        private val authMutex = Mutex()
 
         override fun intercept(chain: Interceptor.Chain): Response {
             val oldToken = tokenManager.value.token()
@@ -149,8 +113,6 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         return ApolloClient.Builder()
             .serverUrl("$serverUrl/api/graphql")
             .okHttpClient(client)
-            .httpHeaders(tokenManager.value.getBasicHeaders())
-            .addInterceptor(AuthorizationInterceptor(tokenManager))
             .build()
     }
 
