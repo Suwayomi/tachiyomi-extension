@@ -55,6 +55,9 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
 import okhttp3.Dns
 import okhttp3.Headers
 import okhttp3.Interceptor
@@ -72,7 +75,9 @@ import kotlin.math.min
 class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override val name = "Suwayomi"
     override val id = 3100117499901280806L
+
     private val authMutex = Mutex()
+    private val json: Json by lazy { Json { ignoreUnknownKeys = true } }
 
     private inner class AuthorizationInterceptor(private val tokenManager: Lazy<TokenManager>) : ApolloInterceptor {
         private inner class UnauthorizedException(val err: String) : ApolloException(err)
@@ -123,7 +128,21 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             }
         }
 
-        private fun Response.isUnauthorized(): Boolean = this.code == 401
+        private fun Response.isUnauthorized(): Boolean = this.code == 401 || this.isGraphQLUnauthorized()
+        private fun Response.isGraphQLUnauthorized(): Boolean {
+            @Serializable
+            data class Error(val message: String)
+
+            @Serializable
+            data class Outer(val errors: List<Error>)
+
+            return try {
+                val body = json.decodeFromStream<Outer>(this.peekBody(Long.MAX_VALUE).byteStream())
+                body.errors.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") || it.message == "Unauthorized" }
+            } catch (e: Exception) {
+                false
+            }
+        }
     }
 
     private fun createApolloClient(serverUrl: String): ApolloClient {
