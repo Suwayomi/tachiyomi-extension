@@ -22,15 +22,6 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
 
     private data class TokenTuple(val accessToken: String?, val refreshToken: String?)
 
-    public fun getBasicHeaders(): List<HttpHeader> {
-        val headers = mutableListOf<HttpHeader>()
-        if (mode == Tachidesk.AuthMode.BASIC_AUTH && pass.isNotEmpty() && user.isNotEmpty()) {
-            val credentials = Credentials.basic(user, pass)
-            headers.add(HttpHeader("Authorization", credentials))
-        }
-        return headers.toList()
-    }
-
     public fun getHeaders(): List<HttpHeader> {
         val headers = mutableListOf<HttpHeader>()
         when (mode) {
