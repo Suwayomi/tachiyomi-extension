@@ -101,7 +101,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             data class Outer(val errors: List<Error>)
 
             return try {
-                val body = json.decodeFromStream<Outer>(this.peekBody(Long.MAX_VALUE).byteStream())
+                val body = this.peekBody(Long.MAX_VALUE).byteStream().use { json.decodeFromStream<Outer>(it) }
                 body.errors.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") || it.message == "Unauthorized" }
             } catch (e: Exception) {
                 false
