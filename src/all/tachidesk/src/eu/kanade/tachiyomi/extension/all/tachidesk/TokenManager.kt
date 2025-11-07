@@ -63,6 +63,10 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
 
     public fun Request.Builder.addToken(): Request.Builder {
         return when (mode) {
+            Tachidesk.AuthMode.BASIC_AUTH -> {
+                val credentials = Credentials.basic(user, pass)
+                this.header("Authorization", credentials)
+            }
             Tachidesk.AuthMode.SIMPLE_LOGIN -> this.header("Cookie", cookies)
             Tachidesk.AuthMode.UI_LOGIN -> this.header("Authorization", "Bearer $currentToken")
             else -> this
