@@ -47,7 +47,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import okhttp3.Dns
@@ -95,12 +94,6 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
         private fun Response.isUnauthorized(): Boolean = this.code == 401 || this.isGraphQLUnauthorized()
         private fun Response.isGraphQLUnauthorized(): Boolean {
-            @Serializable
-            data class Error(val message: String)
-
-            @Serializable
-            data class Outer(val errors: List<Error>)
-
             return try {
                 val body = this.peekBody(Long.MAX_VALUE).byteStream().use { json.decodeFromStream<Outer>(it) }
                 body.errors.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") || it.message == "Unauthorized" }
