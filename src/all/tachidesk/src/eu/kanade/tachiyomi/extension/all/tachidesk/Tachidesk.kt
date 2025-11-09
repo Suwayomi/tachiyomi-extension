@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.text.InputType
 import android.util.Log
 import android.widget.Toast
+import androidx.preference.CheckBoxPreference
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
@@ -670,6 +671,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         screen.addPreference(screen.editListPreference(MODE_TITLE, MODE_DEFAULT, baseAuthMode.title, AuthMode.entries.map { it.title }, AuthMode.entries.map { it.toString() }, "Must match Suwayomi's auth_mode setting", MODE_TITLE))
         screen.addPreference(screen.editTextPreference(LOGIN_TITLE, LOGIN_DEFAULT, baseLogin, false, "", LOGIN_KEY))
         screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, basePassword, true, "", PASSWORD_KEY))
+        screen.addPreference(screen.checkBoxPreference(TRACKER_DELETE_TITLE, TRACKER_DELETE_DEFAULT, "", TRACKER_DELETE_KEY))
     }
 
     /** boilerplate for [EditTextPreference] */
@@ -722,6 +724,24 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         }
     }
 
+    private fun PreferenceScreen.checkBoxPreference(title: String, default: Boolean, placeholder: String, key: String): CheckBoxPreference {
+        return CheckBoxPreference(context).apply {
+            this.key = title
+            this.title = title
+            summary = placeholder
+            this.setDefaultValue(default)
+
+            setOnPreferenceChangeListener { _, newValue ->
+                try {
+                    preferences.edit().putBoolean(key, newValue as Boolean).commit()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Exception while setting boolean preference", e)
+                    false
+                }
+            }
+        }
+    }
+
     public enum class AuthMode(val title: String) {
         NONE("None"),
         BASIC_AUTH("Basic Authentication"),
@@ -738,6 +758,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     }
     private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_KEY, LOGIN_DEFAULT)!!
     private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_KEY, PASSWORD_DEFAULT)!!
+    private fun getPrefTrackerDelete(): Boolean = preferences.getBoolean(TRACKER_DELETE_KEY, TRACKER_DELETE_DEFAULT)
 
     companion object {
         private const val ADDRESS_TITLE = "Server URL Address"
@@ -750,6 +771,9 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         private const val PASSWORD_KEY = "Password (Basic Auth)"
         private const val PASSWORD_TITLE = "Password"
         private const val PASSWORD_DEFAULT = ""
+        private const val TRACKER_DELETE_KEY = "Tracker Delete"
+        private const val TRACKER_DELETE_TITLE = "Tracker: Delete downloaded files from Suwayomi when marking chapters as read"
+        private const val TRACKER_DELETE_DEFAULT = false
 
         private const val TAG = "Tachidesk"
     }
