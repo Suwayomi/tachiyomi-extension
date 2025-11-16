@@ -14,7 +14,9 @@ import com.apollographql.apollo3.api.Optional
 import com.apollographql.apollo3.network.okHttpClient
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetCategoriesQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChapterIdQuery
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChaptersDataQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChaptersMutation
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetMangaDataQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetMangaMutation
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetPagesMutation
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.SearchMangaQuery
@@ -36,10 +38,13 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
@@ -47,6 +52,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import okhttp3.Dns
@@ -70,7 +76,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     private val json: Json by lazy { Json { ignoreUnknownKeys = true } }
 
     private inner class OkAuthorizationInterceptor(private val tokenManager: Lazy<TokenManager>) : Interceptor {
-        private inner class UnauthorizedException(val err: String) : Exception(err)
+        private inner class UnauthorizedException(err: String) : Exception(err)
         private val authMutex = Mutex()
 
         override fun intercept(chain: Interceptor.Chain): Response {
@@ -97,7 +103,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             return try {
                 val body = this.peekBody(Long.MAX_VALUE).byteStream().use { json.decodeFromStream<Outer>(it) }
                 body.errors.any { it.message.contains("suwayomi.tachidesk.server.user.UnauthorizedException") || it.message == "Unauthorized" }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 false
             }
         }
@@ -186,21 +192,56 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override fun mangaDetailsParse(response: Response): SManga =
         throw Exception("Not used")
 
+    private fun getMangaDetailsFlow(id: Int) = apolloClient.value
+        .query(
+            GetMangaDataQuery(id),
+        )
+        .toFlow()
+        .map { response ->
+            response.dataAssertNoErrors
+                .manga
+                .mangaFragment
+                .toSManga()
+        }
+
     override fun fetchMangaDetails(manga: SManga): Observable<SManga> {
         return runCatching {
-            apolloClient.value
-                .mutation(
-                    GetMangaMutation(manga.url.toInt()),
-                )
-                .toFlow()
-                .map {
-                    it.dataAssertNoErrors
-                        .fetchManga!!
-                        .manga
-                        .mangaFragment
-                        .toSManga()
-                }
-                .asObservable()
+            if (fetchDataFromSource()) {
+                apolloClient.value
+                    .mutation(
+                        GetMangaMutation(manga.url.toInt()),
+                    )
+                    .toFlow()
+                    .map {
+                        it.dataAssertNoErrors
+                            .fetchManga!!
+                            .manga
+                            .mangaFragment
+                            .toSManga()
+                    }
+                    .catch { e ->
+                        if (e is CancellationException) {
+                            throw e
+                        }
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                Injekt.get<Application>(),
+                                "Failed to fetch manga: ${e.message}",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        runCatching {
+                            emit(getMangaDetailsFlow(manga.url.toInt()).first())
+                        }.onFailure {
+                            if (it is CancellationException) {
+                                throw it.apply { addSuppressed(e) }
+                            }
+                            throw e.apply { addSuppressed(it) }
+                        }
+                    }
+            } else {
+                getMangaDetailsFlow(manga.url.toInt())
+            }.asObservable()
         }.getOrElse {
             Observable.error(it)
         }
@@ -220,23 +261,62 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override fun chapterListParse(response: Response): List<SChapter> =
         throw Exception("Not used")
 
+    private fun getChapterListFlow(id: Int) = apolloClient.value
+        .query(
+            GetChaptersDataQuery(id),
+        )
+        .toFlow()
+        .map { response ->
+            response.dataAssertNoErrors
+                .chapters
+                .nodes
+                .sortedByDescending { it.chapterFragment.sourceOrder }
+                .map {
+                    it.chapterFragment.toSChapter()
+                }
+        }
+
     override fun fetchChapterList(manga: SManga): Observable<List<SChapter>> {
         return runCatching {
-            apolloClient.value
-                .mutation(
-                    GetChaptersMutation(manga.url.toInt()),
-                )
-                .toFlow()
-                .map { response ->
-                    response.dataAssertNoErrors
-                        .fetchChapters!!
-                        .chapters
-                        .sortedByDescending { it.chapterFragment.sourceOrder }
-                        .map {
-                            it.chapterFragment.toSChapter()
+            if (fetchDataFromSource()) {
+                apolloClient.value
+                    .mutation(
+                        GetChaptersMutation(manga.url.toInt()),
+                    )
+                    .toFlow()
+                    .map { response ->
+
+                        response.dataAssertNoErrors
+                            .fetchChapters!!
+                            .chapters
+                            .sortedByDescending { it.chapterFragment.sourceOrder }
+                            .map {
+                                it.chapterFragment.toSChapter()
+                            }
+                    }
+                    .catch { e ->
+                        if (e is CancellationException) {
+                            throw e
                         }
-                }
-                .asObservable()
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                Injekt.get<Application>(),
+                                "Failed to fetch chapters: ${e.message}",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                        runCatching {
+                            emit(getChapterListFlow(manga.url.toInt()).first())
+                        }.onFailure {
+                            if (it is CancellationException) {
+                                throw it.apply { addSuppressed(e) }
+                            }
+                            throw e.apply { addSuppressed(it) }
+                        }
+                    }
+            } else {
+                getChapterListFlow(manga.url.toInt())
+            }.asObservable()
         }.getOrElse {
             Observable.error(it)
         }
@@ -665,6 +745,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         screen.addPreference(screen.editTextPreference(LOGIN_TITLE, LOGIN_DEFAULT, baseLogin, false, "", LOGIN_KEY))
         screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, basePassword, true, "", PASSWORD_KEY))
         screen.addPreference(screen.checkBoxPreference(TRACKER_DELETE_TITLE, TRACKER_DELETE_DEFAULT, "", TRACKER_DELETE_KEY))
+        screen.addPreference(screen.checkBoxPreference(FETCH_DATA_FROM_SOURCE_TITLE, FETCH_DATA_FROM_SOURCE_DEFAULT, "", FETCH_DATA_FROM_SOURCE_TITLE))
     }
 
     /** boilerplate for [EditTextPreference] */
@@ -735,7 +816,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         }
     }
 
-    public enum class AuthMode(val title: String) {
+    enum class AuthMode(val title: String) {
         NONE("None"),
         BASIC_AUTH("Basic Authentication"),
         SIMPLE_LOGIN("Simple Login"),
@@ -752,6 +833,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_KEY, LOGIN_DEFAULT)!!
     private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_KEY, PASSWORD_DEFAULT)!!
     private fun getPrefTrackerDelete(): Boolean = preferences.getBoolean(TRACKER_DELETE_KEY, TRACKER_DELETE_DEFAULT)
+    private fun fetchDataFromSource(): Boolean = preferences.getBoolean(FETCH_DATA_FROM_SOURCE_TITLE, FETCH_DATA_FROM_SOURCE_DEFAULT)
 
     companion object {
         private const val ADDRESS_TITLE = "Server URL Address"
@@ -767,6 +849,8 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         private const val TRACKER_DELETE_KEY = "Tracker Delete"
         private const val TRACKER_DELETE_TITLE = "Tracker: Delete downloaded files from Suwayomi when marking chapters as read"
         private const val TRACKER_DELETE_DEFAULT = false
+        private const val FETCH_DATA_FROM_SOURCE_TITLE = "Fetch Data From Source"
+        private const val FETCH_DATA_FROM_SOURCE_DEFAULT = true
 
         private const val TAG = "Tachidesk"
     }
