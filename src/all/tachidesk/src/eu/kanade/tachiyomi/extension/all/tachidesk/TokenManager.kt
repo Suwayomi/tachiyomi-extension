@@ -2,8 +2,6 @@ package eu.kanade.tachiyomi.extension.all.tachidesk
 
 import android.util.Log
 import com.apollographql.apollo3.ApolloClient
-import com.apollographql.apollo3.api.ApolloRequest
-import com.apollographql.apollo3.api.Operation
 import com.apollographql.apollo3.api.http.HttpHeader
 import com.apollographql.apollo3.network.okHttpClient
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.LoginMutation
@@ -22,7 +20,7 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
 
     private data class TokenTuple(val accessToken: String?, val refreshToken: String?)
 
-    public fun getHeaders(): List<HttpHeader> {
+    fun getHeaders(): List<HttpHeader> {
         val headers = mutableListOf<HttpHeader>()
         when (mode) {
             Tachidesk.AuthMode.NONE -> { }
@@ -36,7 +34,7 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
         return headers.toList()
     }
 
-    public fun token(): Any? {
+    fun token(): Any? {
         return when (mode) {
             Tachidesk.AuthMode.SIMPLE_LOGIN -> cookies
             Tachidesk.AuthMode.UI_LOGIN -> TokenTuple(currentToken, refreshToken)
@@ -44,15 +42,7 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
         }
     }
 
-    public fun <D : Operation.Data> ApolloRequest.Builder<D>.addToken(): ApolloRequest.Builder<D> {
-        return when (mode) {
-            Tachidesk.AuthMode.SIMPLE_LOGIN -> this.addHttpHeader("Cookie", cookies)
-            Tachidesk.AuthMode.UI_LOGIN -> this.addHttpHeader("Authorization", "Bearer $currentToken")
-            else -> this
-        }
-    }
-
-    public fun Request.Builder.addToken(): Request.Builder {
+    fun Request.Builder.addToken(): Request.Builder {
         return when (mode) {
             Tachidesk.AuthMode.BASIC_AUTH -> {
                 val credentials = Credentials.basic(user, pass)
@@ -64,7 +54,7 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
         }
     }
 
-    public suspend fun refresh(oldToken: Any?) {
+    suspend fun refresh(oldToken: Any?) {
         Log.v(TAG, "Refreshing token for mode $mode")
         when (mode) {
             Tachidesk.AuthMode.SIMPLE_LOGIN -> {
@@ -78,7 +68,7 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
                 val result = baseClient.newBuilder().followRedirects(false).build().newCall(request).await()
                 // login.html redirects when successful
                 if (!result.isRedirect) {
-                    var err = result.body.string().replace(".*<div class=\"error\">([^<]*)</div>.*".toRegex(RegexOption.DOT_MATCHES_ALL)) {
+                    val err = result.body.string().replace(".*<div class=\"error\">([^<]*)</div>.*".toRegex(RegexOption.DOT_MATCHES_ALL)) {
                         it.groups[1]!!.value
                     }
                     Log.v(TAG, "Cookie refresh failed, server did not redirect, error: $err")

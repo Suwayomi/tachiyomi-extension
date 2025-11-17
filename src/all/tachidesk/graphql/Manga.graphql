@@ -33,6 +33,12 @@ mutation GetManga($mangaId: Int!) {
     }
 }
 
+query GetMangaData($mangaId: Int!) {
+    manga(id: $mangaId) {
+        ...MangaFragment
+    }
+}
+
 query SearchManga($filter: [MangaFilterInput!]) {
     mangas(
         condition: {inLibrary: true},
