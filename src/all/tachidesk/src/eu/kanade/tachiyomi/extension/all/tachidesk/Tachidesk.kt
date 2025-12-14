@@ -675,7 +675,10 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                 }
                 .map { mangaList ->
                     // Filter by tags
-                    var searchResults = mangaList.toList()
+                    val orcaSourceId = 8611186161012125639
+                    var searchResults = mangaList.filter { manga ->
+                        manga.sourceId == orcaSourceId
+                    }
 
                     // Sort results
                     searchResults = when (sortByProperty) {
