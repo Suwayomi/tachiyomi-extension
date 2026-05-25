@@ -25,7 +25,6 @@ fragment MangaFragment on MangaType {
     downloadCount
     source {
         displayName
-        id
     }
 }
 
