@@ -766,6 +766,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, basePassword, true, "", PASSWORD_KEY))
         screen.addPreference(screen.checkBoxPreference(TRACKER_DELETE_TITLE, TRACKER_DELETE_DEFAULT, "", TRACKER_DELETE_KEY))
         screen.addPreference(screen.checkBoxPreference(FETCH_DATA_FROM_SOURCE_TITLE, FETCH_DATA_FROM_SOURCE_DEFAULT, "", FETCH_DATA_FROM_SOURCE_TITLE))
+        screen.addPreference(screen.checkBoxPreference(MENTION_SOURCE_IN_DESCRIPTION_TITLE, MENTION_SOURCE_IN_DESCRIPTION_DEFAULT, "", MENTION_SOURCE_IN_DESCRIPTION_KEY))
         screen.addPreference(screen.editTextPreference(CUSTOM_HTTP_HEADERS_TITLE, CUSTOM_HTTP_HEADERS_DEFAULT, "", false, "", CUSTOM_HTTP_HEADERS_TITLE, "One per line, e.g.:\nHeader1: value1\nHeader2: value2"))
     }
 
@@ -856,6 +857,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_KEY, PASSWORD_DEFAULT)!!
     private fun getPrefTrackerDelete(): Boolean = preferences.getBoolean(TRACKER_DELETE_KEY, TRACKER_DELETE_DEFAULT)
     private fun fetchDataFromSource(): Boolean = preferences.getBoolean(FETCH_DATA_FROM_SOURCE_TITLE, FETCH_DATA_FROM_SOURCE_DEFAULT)
+    private fun getPrefMentionSourceInDescription(): Boolean = preferences.getBoolean(MENTION_SOURCE_IN_DESCRIPTION_KEY, MENTION_SOURCE_IN_DESCRIPTION_DEFAULT)
     private fun getPrefCustomHttpHeaders(): String = preferences.getString(CUSTOM_HTTP_HEADERS_TITLE, CUSTOM_HTTP_HEADERS_DEFAULT)!!
 
     companion object {
@@ -874,6 +876,9 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         private const val TRACKER_DELETE_DEFAULT = false
         private const val FETCH_DATA_FROM_SOURCE_TITLE = "Fetch Data From Source"
         private const val FETCH_DATA_FROM_SOURCE_DEFAULT = true
+        private const val MENTION_SOURCE_IN_DESCRIPTION_KEY = "Mention Source in Description"
+        private const val MENTION_SOURCE_IN_DESCRIPTION_TITLE = "Append the original remote source to the end of all manga's descriptions"
+        private const val MENTION_SOURCE_IN_DESCRIPTION_DEFAULT = false
         private const val CUSTOM_HTTP_HEADERS_TITLE = "Custom HTTP headers"
         private const val CUSTOM_HTTP_HEADERS_DEFAULT = ""
 
@@ -889,12 +894,16 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     // ------------- Util -------------
 
     private fun MangaFragment.toSManga() = SManga.create().also {
+        var desc = description
+        if (getPrefMentionSourceInDescription() && source != null) {
+            desc += "\n\n**Source:** ${source.displayName} [${source.id}]"
+        }
         it.url = id.toString()
         it.title = title
         it.thumbnail_url = "$cleanUrl$thumbnailUrl"
         it.artist = artist
         it.author = author
-        it.description = description
+        it.description = desc
         it.genre = genre.joinToString(", ")
         it.status = when (status) {
             MangaStatus.ONGOING -> SManga.ONGOING
