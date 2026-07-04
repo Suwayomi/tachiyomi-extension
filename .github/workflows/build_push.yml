@@ -44,7 +44,7 @@ jobs:
         run: ./gradlew assembleRelease
 
       - name: Upload APKs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: "github.repository == 'suwayomi/tachiyomi-extension'"
         with:
           name: "individual-apks"
@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download APK artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: ~/apk-artifacts
 
