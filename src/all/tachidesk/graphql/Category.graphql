@@ -4,7 +4,7 @@ fragment CategoryFragment on CategoryType {
 }
 
 query GetCategories {
-    categories(orderBy: ORDER) {
+    categories(order: { by: ORDER }) {
         nodes {
             ...CategoryFragment
         }
