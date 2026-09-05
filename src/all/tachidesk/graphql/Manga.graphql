@@ -29,10 +29,13 @@ fragment MangaFragment on MangaType {
     realUrl
 }
 
-mutation GetManga($mangaId: Int!) {
-    fetchManga(input: {id: $mangaId}) {
+mutation GetMangaAndChapters($mangaId: Int!, $fetchManga: Boolean!, $fetchChapters: Boolean!) {
+    fetchMangaAndChapters(input: {id: $mangaId, fetchManga: $fetchManga, fetchChapters: $fetchChapters}) {
         manga {
             ...MangaFragment
+        }
+        chapters {
+            ...ChapterFragment
         }
     }
 }
