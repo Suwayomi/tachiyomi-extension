@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -73,7 +73,7 @@ jobs:
           distribution: adopt
 
       - name: Checkout main branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
           path: main
@@ -88,7 +88,7 @@ jobs:
           ./.github/scripts/create-repo.sh
 
       - name: Checkout repo branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: repo
           path: repo
