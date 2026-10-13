@@ -45,6 +45,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -231,7 +232,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                         GetMangaAndChaptersMutation(
                             manga.url.toInt(),
                             fetchManga = true,
-                            fetchChapters = false
+                            fetchChapters = false,
                         ),
                     )
                     .toFlow()
@@ -274,8 +275,12 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     override fun getChapterUrl(chapter: SChapter): String {
         val mangaId = chapter.url.substringBefore(' ', "")
-        val chapterSourceOrder = chapter.url.substringAfter(' ', "")
-        return "$checkedBaseUrl/manga/$mangaId/chapter/$chapterSourceOrder"
+        val chapterRef = chapter.url.substringAfter(' ', "")
+        // The WebUI addresses chapters by source order, which id-based urls don't carry
+        if (chapterRef.startsWith(CHAPTER_ID_PREFIX)) {
+            return "$checkedBaseUrl/manga/$mangaId"
+        }
+        return "$checkedBaseUrl/manga/$mangaId/chapter/$chapterRef"
     }
 
     override fun chapterListRequest(manga: SManga): Request =
@@ -307,7 +312,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                         GetMangaAndChaptersMutation(
                             manga.url.toInt(),
                             fetchManga = false,
-                            fetchChapters = true
+                            fetchChapters = true,
                         ),
                     )
                     .toFlow()
@@ -355,19 +360,24 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
         return runCatching {
             val mangaId = chapter.url.substringBefore(' ', "").toInt()
-            val chapterSourceOrder = chapter.url.substringAfter(' ', "").toInt()
-            apolloClient.value
-                .query(
-                    GetChapterIdQuery(mangaId, chapterSourceOrder),
-                )
-                .toFlow()
-                .map {
-                    it.dataAssertNoErrors
-                        .chapters
-                        .nodes
-                        .single()
-                        .id
-                }
+            val chapterRef = chapter.url.substringAfter(' ', "")
+            if (chapterRef.startsWith(CHAPTER_ID_PREFIX)) {
+                flowOf(chapterRef.removePrefix(CHAPTER_ID_PREFIX).toInt())
+            } else {
+                // Legacy url, stored before chapters were identified by id
+                apolloClient.value
+                    .query(
+                        GetChapterIdQuery(mangaId, chapterRef.toInt()),
+                    )
+                    .toFlow()
+                    .map {
+                        it.dataAssertNoErrors
+                            .chapters
+                            .nodes
+                            .single()
+                            .id
+                    }
+            }
                 .flatMapLatest { chapterId ->
                     apolloClient.value
                         .mutation(
@@ -868,6 +878,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     private fun getPrefCustomHttpHeaders(): String = preferences.getString(CUSTOM_HTTP_HEADERS_TITLE, CUSTOM_HTTP_HEADERS_DEFAULT)!!
 
     companion object {
+        private const val CHAPTER_ID_PREFIX = "id:"
         private const val ADDRESS_TITLE = "Server URL Address"
         private const val ADDRESS_DEFAULT = ""
         private const val MODE_TITLE = "Login Mode"
@@ -933,7 +944,10 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     }
 
     private fun ChapterFragment.toSChapter() = SChapter.create().also {
-        it.url = "$mangaId $sourceOrder"
+        // Identify chapters by id: source order is not stable when a source drops
+        // chapters from the middle of the list (e.g. MANGA Plus), and a new chapter
+        // taking a known position would inherit that chapter's read state
+        it.url = "$mangaId $CHAPTER_ID_PREFIX$id"
         it.name = name
         it.date_upload = uploadDate
         it.scanlator = scanlator
