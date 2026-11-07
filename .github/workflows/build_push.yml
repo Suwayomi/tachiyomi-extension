@@ -26,7 +26,7 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: 17
+          java-version: 25
           distribution: adopt
 
       - name: Setup Gradle
@@ -69,7 +69,7 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: 17
+          java-version: 25
           distribution: adopt
 
       - name: Checkout main branch
