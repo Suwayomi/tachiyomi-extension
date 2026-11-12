@@ -478,7 +478,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         )
 
     override fun getFilterList(): FilterList = FilterList(
-        Filter.Header("Press reset to refresh tag list and attempt to fetch categories."),
+        Filter.Header("Press reset to refresh tag list and attempt to fetch categories and server sources."),
         Filter.Header("Tag list shows only the tags of currently displayed manga."),
         Filter.Header("\"All\" shows all manga regardless of category."),
         ServerSourceSelect(refreshServerSourceList().let { serverSourceList }),
