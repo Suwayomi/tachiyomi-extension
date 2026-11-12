@@ -1,0 +1,17 @@
+query GetSources {
+    sources {
+        nodes {
+            id
+            displayName
+        }
+    }
+}
+
+mutation FetchSourceManga($source: LongString!, $type: FetchSourceMangaType!, $page: Int!, $query: String) {
+    fetchSourceManga(input: {source: $source, type: $type, page: $page, query: $query}) {
+        mangas {
+            ...MangaFragment
+        }
+        hasNextPage
+    }
+}

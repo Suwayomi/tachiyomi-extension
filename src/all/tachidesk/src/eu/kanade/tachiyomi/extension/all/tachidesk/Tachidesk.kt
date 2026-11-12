@@ -12,16 +12,19 @@ import androidx.preference.PreferenceScreen
 import com.apollographql.apollo3.ApolloClient
 import com.apollographql.apollo3.api.Optional
 import com.apollographql.apollo3.network.okHttpClient
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.FetchSourceMangaMutation
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetCategoriesQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChapterIdQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetChaptersDataQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetMangaAndChaptersMutation
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetMangaDataQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetPagesMutation
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.GetSourcesQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.SearchMangaQuery
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.CategoryFragment
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.ChapterFragment
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.fragment.MangaFragment
+import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.FetchSourceMangaType
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.IntFilterInput
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.MangaFilterInput
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.type.MangaStatus
@@ -231,7 +234,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                         GetMangaAndChaptersMutation(
                             manga.url.toInt(),
                             fetchManga = true,
-                            fetchChapters = false
+                            fetchChapters = false,
                         ),
                     )
                     .toFlow()
@@ -307,7 +310,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                         GetMangaAndChaptersMutation(
                             manga.url.toInt(),
                             fetchManga = false,
-                            fetchChapters = true
+                            fetchChapters = true,
                         ),
                     )
                     .toFlow()
@@ -419,6 +422,8 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
     )
     private val defaultSortByIndex = 0
 
+    private var serverSourceList: List<GetSourcesQuery.Node> = emptyList()
+
     private var tagList: List<String> = emptyList()
     private val tagModeAndString = "AND"
     private val tagModeOrString = "OR"
@@ -430,6 +435,10 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
 
     class CategorySelect(categoryList: List<CategoryFragment>) :
         Filter.Select<String>("Category", categoryList.map { it.name }.toTypedArray())
+
+    // First entry is the server library; the rest are sources installed on the server.
+    class ServerSourceSelect(val sources: List<GetSourcesQuery.Node>) :
+        Filter.Select<String>("Search in", (listOf("Library") + sources.map { it.displayName }).toTypedArray())
 
     class ResultsPerPageSelect(options: List<Int>) :
         Filter.Select<Int>("Results per page", options.toTypedArray())
@@ -469,9 +478,12 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         )
 
     override fun getFilterList(): FilterList = FilterList(
-        Filter.Header("Press reset to refresh tag list and attempt to fetch categories."),
+        Filter.Header("Press reset to refresh tag list and attempt to fetch categories and server sources."),
         Filter.Header("Tag list shows only the tags of currently displayed manga."),
         Filter.Header("\"All\" shows all manga regardless of category."),
+        ServerSourceSelect(refreshServerSourceList().let { serverSourceList }),
+        Filter.Header("Pick a server source to find series that aren't in your library (other filters are ignored)."),
+        Filter.Separator(),
         CategorySelect(refreshCategoryList().let { categoryList }),
         Filter.Separator(),
         TagFilterModeGroup(
@@ -508,6 +520,37 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         }
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
+    private fun refreshServerSourceList() {
+        runCatching {
+            apolloClient.value
+                .query(GetSourcesQuery())
+                .toFlow()
+                .onEach { response ->
+                    serverSourceList = response.dataAssertNoErrors.sources.nodes.sortedBy { it.displayName.lowercase() }
+                }
+                .catch { serverSourceList = emptyList() }
+                .launchIn(GlobalScope)
+        }
+    }
+
+    private fun fetchServerSourceManga(sourceId: Long, page: Int, query: String): Observable<MangasPage> =
+        apolloClient.value
+            .mutation(
+                FetchSourceMangaMutation(
+                    sourceId,
+                    if (query.isEmpty()) FetchSourceMangaType.POPULAR else FetchSourceMangaType.SEARCH,
+                    page,
+                    Optional.present(query),
+                ),
+            )
+            .toFlow()
+            .map { response ->
+                val result = response.dataAssertNoErrors.fetchSourceManga!!
+                MangasPage(result.mangas.map { it.mangaFragment.toSManga() }, result.hasNextPage)
+            }
+            .asObservable()
+
     private fun refreshTagList(mangaList: List<MangaFragment>) {
         val newTagList = mutableListOf<String>()
         for (mangaDetails in mangaList) {
@@ -531,6 +574,10 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
         filters: FilterList,
     ): Observable<MangasPage> {
         return runCatching {
+            filters.filterIsInstance<ServerSourceSelect>().firstOrNull()?.takeIf { it.state > 0 }?.let {
+                return fetchServerSourceManga(it.sources[it.state - 1].id, page, query)
+            }
+
             // Embed search query and scope into URL params for processing in searchMangaParse
             var currentCategoryId = defaultCategoryId
             var resultsPerPage = defaultResultsPerPage
@@ -763,6 +810,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
                 refreshCategoryList()
             }
         }
+        if (getPrefBaseUrl().isNotBlank()) refreshServerSourceList()
     }
 
     // ------------- Preferences -------------
