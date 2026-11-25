@@ -151,6 +151,7 @@ class Tachidesk : ConfigurableSource, UnmeteredSource, HttpSource() {
             network.client.newBuilder()
                 .dns(Dns.SYSTEM) // don't use DNS over HTTPS as it breaks IP addressing
                 .callTimeout(2, TimeUnit.MINUTES)
+                .addInterceptor(CustomHeadersInterceptor())
                 .build(),
         )
     }

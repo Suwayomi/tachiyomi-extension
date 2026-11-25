@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.LoginMutation
 import eu.kanade.tachiyomi.extension.all.tachidesk.apollo.RefreshTokenMutation
 import eu.kanade.tachiyomi.network.await
 import kotlinx.coroutines.flow.single
+import okhttp3.CacheControl
 import okhttp3.Credentials
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -63,18 +64,31 @@ class TokenManager(private val mode: Tachidesk.AuthMode, private val user: Strin
                     return
                 }
 
-                val formBody = FormBody.Builder().add("user", user).add("pass", pass).build()
+                // Before login, fetch login HTML page for its contained csrf-token
+                val loginPageRequest = Request.Builder().url(baseUrl + "/login.html")
+                    .cacheControl(CacheControl.FORCE_NETWORK) // Bypass cache to avoid getting cached page with outdated csrf token
+                    .build()
+                val loginPageHtml = baseClient.newCall(loginPageRequest).await().use { it.body.string() }
+
+                // Extract csrf-token from login form
+                val csrfToken = Regex("""name="csrf-token"\s+value="([^"]*)"""").find(loginPageHtml)?.groupValues?.get(1).orEmpty()
+                if (csrfToken.isEmpty()) Log.d(TAG, "No CSRF token on login page found, perhaps older server version")
+
+                val formBody = FormBody.Builder()
+                    .add("user", user).add("pass", pass)
+                    .add("csrf-token", csrfToken).build()
                 val request = Request.Builder().url(baseUrl + "/login.html").post(formBody).build()
-                val result = baseClient.newBuilder().followRedirects(false).build().newCall(request).await()
-                // login.html redirects when successful
-                if (!result.isRedirect) {
-                    val err = result.body.string().replace(".*<div class=\"error\">([^<]*)</div>.*".toRegex(RegexOption.DOT_MATCHES_ALL)) {
-                        it.groups[1]!!.value
+                baseClient.newBuilder().followRedirects(false).build().newCall(request).await().use { result ->
+                    // login.html redirects when successful
+                    if (!result.isRedirect) {
+                        val err = result.body.string().replace(".*<div class=\"error\">([^<]*)</div>.*".toRegex(RegexOption.DOT_MATCHES_ALL)) {
+                            it.groups[1]!!.value
+                        }
+                        Log.v(TAG, "Cookie refresh failed, server did not redirect, error: $err")
+                        throw Exception("Login failed: $err")
                     }
-                    Log.v(TAG, "Cookie refresh failed, server did not redirect, error: $err")
-                    throw Exception("Login failed: $err")
+                    cookies = result.header("Set-Cookie", "")!!
                 }
-                cookies = result.header("Set-Cookie", "")!!
                 Log.v(TAG, "Cookie successfully refreshed")
             }
             Tachidesk.AuthMode.UI_LOGIN -> {
